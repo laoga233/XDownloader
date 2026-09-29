@@ -20,8 +20,8 @@ using System.Windows.Forms;
 [assembly: System.Reflection.AssemblyTitle("X/推特图片视频下载器")]
 [assembly: System.Reflection.AssemblyProduct("X/推特图片视频下载器")]
 [assembly: System.Reflection.AssemblyCompany("By Codex&上邪上")]
-[assembly: System.Reflection.AssemblyVersion("0.12.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.12.0.0")]
+[assembly: System.Reflection.AssemblyVersion("0.12.1.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.12.1.0")]
 
 namespace XDownloader {
 class MainWindow : Form {
@@ -38,7 +38,7 @@ class MainWindow : Form {
     public MainWindow(bool test) {
         data=test ? Path.Combine(Path.GetTempPath(),"XDownloader-UI") : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"XDownloader");
         browser=new Browser(Path.Combine(data,"ChromeProfile"));
-        Text="X/推特图片视频下载器 · v0.12 · By Codex&上邪上"; Font=new Font("Microsoft YaHei UI",10); BackColor=Color.FromArgb(245,247,251); ForeColor=Color.FromArgb(30,42,58);
+        Text="X/推特图片视频下载器 · v0.12.1 · By Codex&上邪上"; Font=new Font("Microsoft YaHei UI",10); BackColor=Color.FromArgb(245,247,251); ForeColor=Color.FromArgb(30,42,58);
         Icon=System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         ClientSize=new Size(960,840); MinimumSize=new Size(940,810); StartPosition=FormStartPosition.CenterScreen; AutoScaleMode=AutoScaleMode.Dpi;
         var layout=new TableLayoutPanel { Dock=DockStyle.Fill, Padding=new Padding(26), ColumnCount=1, RowCount=12 };
@@ -47,14 +47,14 @@ class MainWindow : Form {
         Controls.Add(layout);
         var heading=new FlowLayoutPanel { Dock=DockStyle.Fill,WrapContents=false };
         heading.Controls.Add(new Label { Text="X/推特图片视频下载器",Font=new Font(Font.FontFamily,21,FontStyle.Bold),AutoSize=true,UseMnemonic=false });
-        heading.Controls.Add(new Label { Text="v0.12  ·  By Codex&上邪上",Font=new Font(Font.FontFamily,11),AutoSize=true,UseMnemonic=false,Margin=new Padding(12,14,0,0),ForeColor=Color.DimGray });
+        heading.Controls.Add(new Label { Text="v0.12.1  ·  By Codex&上邪上",Font=new Font(Font.FontFamily,11),AutoSize=true,UseMnemonic=false,Margin=new Padding(12,14,0,0),ForeColor=Color.DimGray });
         var headingRow=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=2,RowCount=1 };
         headingRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));headingRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,94));
         headingRow.Controls.Add(heading,0,0);
         var changelog=new Button();Style(changelog,"更新日志",86);changelog.AccessibleName="查看最近六个版本的更新日志";
         changelog.Click+=delegate {
-            using(var dialog=new Form { Text="更新日志 · v0.12 至 v0.7",StartPosition=FormStartPosition.CenterParent,ClientSize=new Size(700,570),MinimizeBox=false,MaximizeBox=false,ShowInTaskbar=false,FormBorderStyle=FormBorderStyle.FixedDialog,BackColor=BackColor,ForeColor=ForeColor }) {
-                var content=new TextBox { Multiline=true,ReadOnly=true,WordWrap=true,ScrollBars=ScrollBars.Vertical,Dock=DockStyle.Fill,BorderStyle=BorderStyle.None,BackColor=Color.White,ForeColor=Color.FromArgb(35,45,60),Font=new Font("Microsoft YaHei UI",11),Text=Changelog.Content,Padding=new Padding(8),AccessibleName="v0.12 至 v0.7 更新内容" };
+            using(var dialog=new Form { Text="更新日志 · v0.12.1 至 v0.8",StartPosition=FormStartPosition.CenterParent,ClientSize=new Size(700,570),MinimizeBox=false,MaximizeBox=false,ShowInTaskbar=false,FormBorderStyle=FormBorderStyle.FixedDialog,BackColor=BackColor,ForeColor=ForeColor }) {
+                var content=new TextBox { Multiline=true,ReadOnly=true,WordWrap=true,ScrollBars=ScrollBars.Vertical,Dock=DockStyle.Fill,BorderStyle=BorderStyle.None,BackColor=Color.White,ForeColor=Color.FromArgb(35,45,60),Font=new Font("Microsoft YaHei UI",11),Text=Changelog.Content,Padding=new Padding(8),AccessibleName="v0.12.1 至 v0.8 更新内容" };
                 dialog.Controls.Add(content);dialog.ShowDialog(this);
             }
         };
@@ -88,17 +88,6 @@ class MainWindow : Form {
                     new History(destination.Text).Export(selected,save.FileName);Log("任务记录已导出。");
                 }
             }catch(Exception ex) { Error(ex); }
-        };
-        var archive=new Button();Style(archive,"归档旧 JSON",140);actions.Controls.Add(archive);
-        archive.Click+=async delegate {
-            if(cancellation!=null || loginBusy) { Log("请在任务停止后归档旧记录。");return; }
-            string selectedRoot=destination.Text;
-            if(!File.Exists(Path.Combine(selectedRoot,"_下载记录.sqlite"))) { Log("请先运行一次任务，完成旧记录导入。");return; }
-            if(MessageBox.Show(this,"将当前保存根目录中已迁移的旧 JSON 打包为 ZIP，并校验备份后清理对应原 JSON。媒体、数据库和诊断日志均保留。是否继续？","归档旧记录",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
-            loginBusy=true;start.Enabled=login.Enabled=folder.Enabled=archive.Enabled=export.Enabled=false;
-            try { string path=await Task.Run(()=>new History(selectedRoot).ArchiveLegacy());Log("旧 JSON 已归档："+path); }
-            catch(Exception ex) { Error(ex); }
-            finally { loginBusy=false;start.Enabled=login.Enabled=folder.Enabled=archive.Enabled=export.Enabled=true; }
         };
         var stateRow=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=2 };stateRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,68));stateRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,32));
         status.Text="准备就绪 · 仅公开帖子 · 自动跳过重复文件";status.Dock=DockStyle.Fill;status.AutoEllipsis=true;progress.Dock=DockStyle.Fill;stateRow.Controls.Add(status,0,0);stateRow.Controls.Add(progress,1,0);layout.Controls.Add(stateRow,0,8);
@@ -166,7 +155,7 @@ class MainWindow : Form {
             Directory.CreateDirectory(Path.Combine(root,"_记录"));lastTaskFolder=root;
             reportFile=Path.Combine(root,"_记录","运行记录_"+DateTime.Now.ToString("yyyyMMdd_HHmmss_fff")+".诊断.txt");
             activeDiagnostic=reportFile;
-            Log("v0.12 内部测试 · 下载记录集中存储，保留诊断日志。");
+            Log("v0.12.1 · 保留下载记录集中存储，保留诊断日志。");
             Log("正在检查历史任务记录…");await Task.Run(()=>history.Load(ct),ct);Log("已加载历史记录 "+history.Imported+" 条；旧 JSON 保留原件。");
             history.BeginTask(root,new { targets=targets.Select(t=>t.Url).ToArray(),from=range.Start,to=range.End,images=images.Checked,videos=videos.Checked,limit=limit.Value,force=forceDownload.Checked,strictScan=strictScan.Checked });
             Log("保存目录："+root);

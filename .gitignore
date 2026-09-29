@@ -216,3 +216,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# XDownloader build and local user data
+XDownloader.exe
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+ChromeProfile/
+任务_*/
+*.诊断.txt
