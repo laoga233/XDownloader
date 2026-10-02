@@ -21,23 +21,24 @@ class Target {
         return new Target { User=user, Id=id, Url="https://x.com/"+user+(id==""?"/media":"/status/"+id) };
     }
 }
-class Asset { public string Id, Url, Kind; public int Index; }
+class Asset { public string Id, Url, Kind; public int Index; public bool? PossiblySensitive; }
 class MediaSelection {
-    public readonly bool Images,Videos;
-    public MediaSelection(bool images,bool videos) { if(!images && !videos)throw new UserError("请至少选择图片或视频。");Images=images;Videos=videos; }
-    public bool Accept(Post post) { return post.Media.Any(a=>a.Kind=="photo"?Images:Videos); }
+    public readonly bool Images,Videos,SkipSensitive;
+    public MediaSelection(bool images,bool videos,bool skipSensitive=false) { if(!images && !videos)throw new UserError("请至少选择图片或视频。");Images=images;Videos=videos;SkipSensitive=skipSensitive; }
+    public bool Accept(Post post) { return post.Media.Any(AcceptsType); }
+    public bool AcceptsType(Asset asset) { return asset.Kind=="photo"?Images:Videos; }
     public string Page(Target target,bool replies) {
         // The redesigned /media page can default to videos. The normal post timeline
         // carries original mixed media and keeps one chronological post limit.
         return target.Id=="" && Images?"https://x.com/"+target.User+(replies?"/with_replies":""):target.Url;
     }
 }
-class Post { public string Id, User, UserId, Text, Date; public List<Asset> Media=new List<Asset>(); public List<string> Warnings=new List<string>(); }
+class Post { public string Id, User, UserId, Text, Date; public bool? PossiblySensitive; public List<Asset> Media=new List<Asset>(); public List<string> Warnings=new List<string>(); }
 class Batch { public List<Post> Posts=new List<Post>(); public bool End, Structured; public int Rejected; }
 static class Model {
     // Only a fixed vocabulary of field names/types is emitted. Never response values.
     public static string Schema(string text) {
-        var known=new HashSet<string>(new[]{"data","user","result","results","timeline","timeline_v2","instructions","entries","content","items","item","itemContent","tweet_results","tweetResult","tweet","tweets","legacy","core","user_results","privacy","protected","rest_id","id_str","screen_name","full_text","extended_entities","media","video_info","variants","errors","code","message","__typename","type","cursorType","value"});
+        var known=new HashSet<string>(new[]{"data","user","result","results","timeline","timeline_v2","instructions","entries","content","items","item","itemContent","tweet_results","tweetResult","tweet","tweets","legacy","core","user_results","privacy","protected","rest_id","id_str","screen_name","full_text","extended_entities","media","video_info","variants","possibly_sensitive","possibly_sensitive_editable","errors","code","message","__typename","type","cursorType","value"});
         var output=new List<string>();int budget=2500;
         SchemaWalk(Json.Read(text),"$",0,known,output,ref budget);
         return String.Join("; ",output.Take(65));
@@ -72,6 +73,8 @@ static class Model {
         Uri u; return Uri.TryCreate(url,UriKind.Absolute,out u) && u.Scheme=="https" && u.IsDefaultPort && u.UserInfo=="" && (u.Host=="pbs.twimg.com" || u.Host=="video.twimg.com");
     }
     public static Dictionary<string,object> At(Dictionary<string,object> d,params string[] keys) { foreach(var k in keys)d=Json.Map(Json.Get(d,k));return d; }
+    static bool? SensitiveFlag(Dictionary<string,object> d) { object v=Json.Get(d,"possibly_sensitive");return v is bool?(bool?)v:null; }
+    static bool? OrSensitive(bool? a,bool? b) { return a==true || b==true?(bool?)true:a.HasValue?a:b; }
     public static string Safe(string s) {
         s=Regex.Replace(s??"",@"[^A-Za-z0-9_\-]","_");
         if(s.Length>60)s=s.Substring(0,60);
@@ -147,7 +150,8 @@ static class Model {
         if(!Object.Equals(protection,false)) { batch.Rejected++;return null; }
         if(legacy.ContainsKey("retweeted_status_result") || legacy.ContainsKey("retweeted_status_id_str") || d.ContainsKey("retweeted_status_result"))return null;
         if((!replies && Json.Str(legacy,"in_reply_to_status_id_str")!="") || Json.Get(d,"trusted_friends_info")!=null || Json.Get(d,"exclusive_tweet_info")!=null || Json.Get(legacy,"limited_actions")!=null || Json.Get(d,"limited_actions")!=null) { batch.Rejected++;return null; }
-        var p=new Post { Id=id,User=name,UserId=Json.Str(user,"rest_id"),Text=Json.Str(legacy,"full_text"),Date=Json.Str(legacy,"created_at") };
+        bool? postSensitive=OrSensitive(SensitiveFlag(d),SensitiveFlag(legacy));
+        var p=new Post { Id=id,User=name,UserId=Json.Str(user,"rest_id"),Text=Json.Str(legacy,"full_text"),Date=Json.Str(legacy,"created_at"),PossiblySensitive=postSensitive };
         var seen=new HashSet<string>();int index=0;
         foreach(var item in Json.Arr(Json.Get(At(legacy,"extended_entities"),"media"))) {
             var media=Json.Map(item);index++;
@@ -167,7 +171,7 @@ static class Model {
                     }
                     if(url=="")throw new UserError("无可用 MP4；暂不支持仅 HLS / 直播媒体。");
                 } else throw new UserError("遇到未支持的媒体类型。");
-                p.Media.Add(new Asset { Id=mid,Index=index,Url=url,Kind=type });
+                p.Media.Add(new Asset { Id=mid,Index=index,Url=url,Kind=type,PossiblySensitive=OrSensitive(postSensitive,SensitiveFlag(media)) });
             }catch(UserError e) { p.Warnings.Add("媒体 "+index+"："+e.Message); }
         }
         return p;

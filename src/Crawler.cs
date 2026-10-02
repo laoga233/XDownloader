@@ -8,7 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 
 namespace XDownloader {
-class ScanResult { public string Reason=""; public bool End; public int Posts, Rejected,TypeSkipped; }
+class ScanResult { public string Reason=""; public bool End; public int Posts, Rejected,TypeSkipped,SensitiveSkipped,SensitivityUnknown; }
 partial class Browser {
     string ownedTarget;
     internal int ScanIdleMilliseconds=45000;
@@ -125,6 +125,16 @@ partial class Browser {
                         continue;
                     }
                     if(include!=null && !include(post))continue;
+                    if(selection!=null && selection.SkipSensitive) {
+                        var selectedMedia=post.Media.Where(selection.AcceptsType).ToList();
+                        int blocked=selectedMedia.Count(a=>a.PossiblySensitive==true);
+                        result.SensitiveSkipped+=blocked;
+                        result.SensitivityUnknown+=selectedMedia.Count(a=>!a.PossiblySensitive.HasValue);
+                        if(blocked==selectedMedia.Count) {
+                            if(target.Id!="") { result.End=true;result.Reason="指定帖子媒体均被 X 敏感标记筛除";return result; }
+                            continue;
+                        }
+                    }
                     result.Posts++;
                     await receive(post);quiet.Restart();
                     if(target.Id!="") { result.End=true;result.Reason="指定帖子已处理";return result; }
