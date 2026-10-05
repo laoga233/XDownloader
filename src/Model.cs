@@ -33,8 +33,8 @@ class MediaSelection {
         return target.Id=="" && Images?"https://x.com/"+target.User+(replies?"/with_replies":""):target.Url;
     }
 }
-class Post { public string Id, User, UserId, Text, Date; public bool? PossiblySensitive; public List<Asset> Media=new List<Asset>(); public List<string> Warnings=new List<string>(); }
-class Batch { public List<Post> Posts=new List<Post>(); public bool End, Structured; public int Rejected; }
+class Post { public string Id, User, UserId, DisplayName, Text, Date; public bool? PossiblySensitive; public List<Asset> Media=new List<Asset>(); public List<string> Warnings=new List<string>(); }
+class Batch { public List<Post> Posts=new List<Post>(); public bool End, Structured; public int Rejected; public string User="",UserId="",DisplayName=""; }
 static class Model {
     // Only a fixed vocabulary of field names/types is emitted. Never response values.
     public static string Schema(string text) {
@@ -126,7 +126,7 @@ static class Model {
         if(Json.Str(d,"__typename")=="Tweet" || (d.ContainsKey("rest_id") && d.ContainsKey("legacy") && d.ContainsKey("core") && At(d,"legacy").ContainsKey("full_text"))) {
             batch.Structured=true;
             Post post=ParsePost(d,target,replies,batch);
-            if(post!=null && seen.Add(post.Id))batch.Posts.Add(post);
+            if(post!=null && seen.Add(post.Id)) { batch.Posts.Add(post);if(Regex.IsMatch(post.UserId??"",@"^[0-9]{1,25}$")) { batch.User=post.User;batch.UserId=post.UserId;batch.DisplayName=post.DisplayName; } }
             return; // Do not descend into quoted or retweeted authors' media.
         }
         // Profile metadata can appear before the timeline.
@@ -134,12 +134,14 @@ static class Model {
             var core=At(d,"core");var legacy=At(d,"legacy");
             string name=Json.Str(core,"screen_name");if(name=="")name=Json.Str(legacy,"screen_name");
             if(name.Equals(target.User,StringComparison.OrdinalIgnoreCase) && (Object.Equals(Json.Get(legacy,"protected"),true) || Object.Equals(Json.Get(At(d,"privacy"),"protected"),true)))throw new StopQueue("该用户为受保护账号；本下载器仅处理公开帖子。");
+            if(name.Equals(target.User,StringComparison.OrdinalIgnoreCase) && Object.Equals(Json.Get(At(d,"privacy"),"protected")??Json.Get(legacy,"protected"),false) && Regex.IsMatch(Json.Str(d,"rest_id"),@"^[0-9]{1,25}$")) { batch.User=name;batch.UserId=Json.Str(d,"rest_id");batch.DisplayName=UserDisplayName(d); }
         }
         foreach(var kv in d) {
             if(kv.Key=="quoted_status_result" || kv.Key=="retweeted_status_result")continue;
             Walk(kv.Value,batch,target,replies,depth+1,seen);
         }
     }
+    public static string UserDisplayName(Dictionary<string,object> user) { string name=Json.Str(At(user,"core"),"name");return String.IsNullOrWhiteSpace(name)?Json.Str(At(user,"legacy"),"name"):name; }
     static Post ParsePost(Dictionary<string,object> d,Target target,bool replies,Batch batch) {
         var legacy=At(d,"legacy");string id=Json.Str(d,"rest_id");
         if(!Regex.IsMatch(id,@"^[0-9]{1,25}$") || (target.Id!="" && id!=target.Id))return null;
@@ -151,7 +153,7 @@ static class Model {
         if(legacy.ContainsKey("retweeted_status_result") || legacy.ContainsKey("retweeted_status_id_str") || d.ContainsKey("retweeted_status_result"))return null;
         if((!replies && Json.Str(legacy,"in_reply_to_status_id_str")!="") || Json.Get(d,"trusted_friends_info")!=null || Json.Get(d,"exclusive_tweet_info")!=null || Json.Get(legacy,"limited_actions")!=null || Json.Get(d,"limited_actions")!=null) { batch.Rejected++;return null; }
         bool? postSensitive=OrSensitive(SensitiveFlag(d),SensitiveFlag(legacy));
-        var p=new Post { Id=id,User=name,UserId=Json.Str(user,"rest_id"),Text=Json.Str(legacy,"full_text"),Date=Json.Str(legacy,"created_at"),PossiblySensitive=postSensitive };
+        var p=new Post { Id=id,User=name,UserId=Json.Str(user,"rest_id"),DisplayName=UserDisplayName(user),Text=Json.Str(legacy,"full_text"),Date=Json.Str(legacy,"created_at"),PossiblySensitive=postSensitive };
         var seen=new HashSet<string>();int index=0;
         foreach(var item in Json.Arr(Json.Get(At(legacy,"extended_entities"),"media"))) {
             var media=Json.Map(item);index++;

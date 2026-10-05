@@ -30,10 +30,10 @@ sealed class RecordDb : IDisposable {
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport(Native,CallingConvention=CallingConvention.Cdecl)]static extern int sqlite3_column_count(IntPtr stmt);
     static byte[] Utf8(string s) { return Encoding.UTF8.GetBytes(s+"\0"); }
-    public RecordDb(string path) {
+    public RecordDb(string path,bool readOnly=false) {
         try {
-            int result=sqlite3_open_v2(Utf8(path),out db,2|4|0x10000,IntPtr.Zero);Check(result);
-            Check(sqlite3_busy_timeout(db,5000));Execute("PRAGMA synchronous=FULL");
+            int result=sqlite3_open_v2(Utf8(path),out db,(readOnly?1:2|4)|0x10000,IntPtr.Zero);Check(result);
+            Check(sqlite3_busy_timeout(db,5000));if(!readOnly)Execute("PRAGMA synchronous=FULL");
         }catch(DllNotFoundException) { Dispose();throw new UserError("集中记录需要 Windows 10/11 系统 SQLite 组件（winsqlite3.dll）。"); }
         catch { Dispose();throw; }
     }
@@ -57,7 +57,7 @@ sealed class RecordDb : IDisposable {
         Execute("BEGIN IMMEDIATE");try { action();Execute("COMMIT"); }catch { try { Execute("ROLLBACK"); }catch {}throw; }
     }
     public void Initialize() {
-        var version=Query("PRAGMA user_version")[0][0];if(version!="0" && version!="1")throw new UserError("下载记录数据库版本较新，请使用配套版本程序。");
+        var version=Query("PRAGMA user_version")[0][0];if(version!="0" && version!="1" && version!="2")throw new UserError("下载记录数据库版本较新，请使用配套版本程序。");
         if(Query("PRAGMA quick_check")[0][0]!="ok")throw new UserError("下载记录数据库校验失败，已停止。请保留文件，不要删除后重试。");
         Transaction(()=> {
             Execute("CREATE TABLE IF NOT EXISTS media(post_id TEXT NOT NULL,asset_id TEXT NOT NULL,user_id TEXT,path TEXT COLLATE NOCASE NOT NULL,bytes INTEGER NOT NULL,sha256 TEXT NOT NULL,state TEXT NOT NULL,PRIMARY KEY(post_id,asset_id,path))");
@@ -66,7 +66,9 @@ sealed class RecordDb : IDisposable {
             Execute("CREATE TABLE IF NOT EXISTS task_media(task_id TEXT NOT NULL,post_id TEXT NOT NULL,asset_id TEXT NOT NULL,result TEXT NOT NULL,path TEXT,PRIMARY KEY(task_id,post_id,asset_id))");
             Execute("CREATE TABLE IF NOT EXISTS task_posts(task_id TEXT NOT NULL,post_id TEXT NOT NULL,metadata TEXT NOT NULL,PRIMARY KEY(task_id,post_id))");
             Execute("CREATE TABLE IF NOT EXISTS legacy(path TEXT COLLATE NOCASE PRIMARY KEY,sha256 TEXT NOT NULL,content TEXT NOT NULL)");
-            Execute("PRAGMA user_version=1");
+            Execute("CREATE TABLE IF NOT EXISTS account_folders(user_id TEXT PRIMARY KEY,path TEXT COLLATE NOCASE UNIQUE NOT NULL)");
+            Execute("CREATE TABLE IF NOT EXISTS folder_moves(old_path TEXT COLLATE NOCASE PRIMARY KEY,new_path TEXT NOT NULL,state TEXT NOT NULL)");
+            Execute("PRAGMA user_version=2");
         });
     }
     public void Dispose() { if(db!=IntPtr.Zero) { sqlite3_close(db);db=IntPtr.Zero; } }

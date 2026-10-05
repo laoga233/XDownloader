@@ -58,6 +58,19 @@ class History {
     public int Imported { get { return entries.Count; } }
     public History(string folder) { root=Path.GetFullPath(folder).TrimEnd(Path.DirectorySeparatorChar)+Path.DirectorySeparatorChar;index=Path.Combine(root,"_历史索引.json");database=Path.Combine(root,"_下载记录.sqlite"); }
     RecordDb Open() { return new RecordDb(database); }
+    public string RecordedNickname(string folder,string userId) {
+        if(!File.Exists(database))return "";
+        using(var db=new RecordDb(database,true)) {
+            foreach(var row in db.Query("SELECT summary FROM tasks WHERE path=? COLLATE NOCASE ORDER BY started DESC LIMIT 1",Relative(folder))) {
+                string name=Json.Str(Json.Read(row[0]),"displayName");if(!String.IsNullOrWhiteSpace(name))return name;
+            }
+            if(!Regex.IsMatch(userId??"",@"^[0-9]{1,25}$"))return "";
+            foreach(var row in db.Query("SELECT metadata FROM posts WHERE user_id=? ORDER BY rowid DESC LIMIT 20",userId)) {
+                string name=Json.Str(Json.Read(row[0]),"displayName");if(!String.IsNullOrWhiteSpace(name))return name;
+            }
+        }
+        return "";
+    }
     string Relative(string path) { string full=Path.GetFullPath(path);if(full.TrimEnd(Path.DirectorySeparatorChar).Equals(root.TrimEnd(Path.DirectorySeparatorChar),StringComparison.OrdinalIgnoreCase))return "";if(!full.StartsWith(root,StringComparison.OrdinalIgnoreCase))throw new UserError("历史记录超出保存根目录。");return full.Substring(root.Length); }
     string Resolve(string path) {
         if(String.IsNullOrEmpty(path) || Path.IsPathRooted(path))return null;
@@ -89,6 +102,7 @@ class History {
         entries.Clear();files.Clear();
         using(var db=Open()) {
             db.Initialize();
+            foreach(var move in db.Query("SELECT old_path,new_path FROM folder_moves WHERE state='pending'"))FinishFolderMove(db,move[0],move[1]);
             foreach(string file in Walk(root,ct)) {
                 files.Add(file);
                 if(!file.EndsWith(".json",StringComparison.OrdinalIgnoreCase))continue;
@@ -154,6 +168,56 @@ class History {
     }
     public void BeginTask(string folder,object settings) {
         taskId=Guid.NewGuid().ToString("N");using(var db=Open())db.Execute("INSERT INTO tasks VALUES(?,?,?,'running',?)",taskId,Relative(folder),DateTimeOffset.Now.ToString("o"),Json.Write(settings));
+    }
+    public string AccountFolder(string user,string id,string nickname) {
+        string wanted=Path.Combine(root,TaskArchive.AccountName(root,user,id,nickname));
+        using(var db=Open()) {
+            db.Initialize();
+            var rows=db.Query("SELECT path FROM account_folders WHERE user_id=?",id);
+            string current=rows.Count==1?Resolve(rows[0][0]):null;
+            if(rows.Count==1 && (current==null || Path.GetDirectoryName(current).TrimEnd('\\')!=root.TrimEnd('\\')))throw new UserError("账号归档路径无效，请保留数据库用于排查。");
+            if(current==null) {
+                var legacy=Directory.GetDirectories(root).Where(p=>Regex.IsMatch(Path.GetFileName(p),@"^@[A-Za-z0-9_]{1,15}_"+Regex.Escape(id)+"$",RegexOptions.IgnoreCase)).ToArray();
+                if(legacy.Length>1)throw new UserError("同一用户 ID 对应多个旧账号目录，请先整理后重试。");
+                if(legacy.Length==1)current=legacy[0];
+            }
+            if(current!=null && (Regex.IsMatch(Path.GetFileName(current),@"^@[A-Za-z0-9_]{1,15}_"+Regex.Escape(id)+"$",RegexOptions.IgnoreCase) || Path.GetFileName(current).StartsWith("未取得昵称（@",StringComparison.Ordinal) && !String.IsNullOrWhiteSpace(nickname)) && !current.Equals(wanted,StringComparison.OrdinalIgnoreCase)) {
+                string old=Relative(current),next=Relative(wanted);
+                TaskArchive.CheckPath(root,current);TaskArchive.CheckPath(root,wanted);
+                if(Directory.Exists(wanted) || File.Exists(wanted))throw new UserError("昵称目录已存在，未合并或覆盖原目录。请检查同名目录。");
+                db.Transaction(()=> { db.Execute("INSERT OR REPLACE INTO account_folders VALUES(?,?)",id,old);db.Execute("INSERT OR REPLACE INTO folder_moves VALUES(?,?,'pending')",old,next); });
+                FinishFolderMove(db,old,next);current=wanted;
+                foreach(var e in entries)if(e.path.StartsWith(old+"\\",StringComparison.OrdinalIgnoreCase))e.path=next+e.path.Substring(old.Length);
+                for(int i=0;i<files.Count;i++)if(files[i].StartsWith(Path.Combine(root,old)+"\\",StringComparison.OrdinalIgnoreCase))files[i]=Path.Combine(root,next)+files[i].Substring(Path.Combine(root,old).Length);
+            }
+            if(current==null) {
+                current=wanted;
+                if(Directory.Exists(current) || File.Exists(current))throw new UserError("目标昵称目录已存在但没有对应账号记录，未自动混入文件。请检查目录。");
+                db.Execute("INSERT INTO account_folders VALUES(?,?)",id,Relative(current));
+            }
+            TaskArchive.CheckPath(root,current);Directory.CreateDirectory(current);
+            db.Execute("INSERT OR REPLACE INTO account_folders VALUES(?,?)",id,Relative(current));return current;
+        }
+    }
+    void FinishFolderMove(RecordDb db,string old,string next) {
+        string source=Resolve(old),target=Resolve(next);
+        if(source==null || target==null || Path.GetDirectoryName(source).TrimEnd('\\')!=root.TrimEnd('\\') || Path.GetDirectoryName(target).TrimEnd('\\')!=root.TrimEnd('\\'))throw new UserError("待恢复的账号目录迁移路径无效。");
+        TaskArchive.CheckPath(root,source);TaskArchive.CheckPath(root,target);
+        if(Directory.Exists(source) && !Directory.Exists(target) && !File.Exists(target))Directory.Move(source,target);
+        else if(Directory.Exists(source) || !Directory.Exists(target))throw new UserError("账号目录迁移未完成，请保留原目录和数据库用于排查。");
+        string before=old+"\\",after=next+"\\";
+        db.Transaction(()=> {
+            foreach(string table in new[]{"media","tasks","task_media","legacy"}) {
+                db.Execute("UPDATE "+table+" SET path=? || substr(path,length(?)+1) WHERE substr(path,1,length(?))=? COLLATE NOCASE",after,before,before,before);
+                db.Execute("UPDATE "+table+" SET path=? WHERE path=? COLLATE NOCASE",next,old);
+            }
+            db.Execute("UPDATE account_folders SET path=? WHERE path=? COLLATE NOCASE",next,old);
+            foreach(var task in db.Query("SELECT id,summary FROM tasks WHERE substr(path,1,length(?))=? COLLATE NOCASE",after,after)) {
+                var data=Json.Read(task[1]);string folder=Json.Str(data,"taskFolder");
+                if(folder.StartsWith(source+"\\",StringComparison.OrdinalIgnoreCase)) { data["taskFolder"]=target+folder.Substring(source.Length);db.Execute("UPDATE tasks SET summary=? WHERE id=?",Json.Write(data),task[0]); }
+            }
+            db.Execute("UPDATE folder_moves SET state='complete' WHERE old_path=?",old);
+        });
     }
     public void PostInfo(Post p,object info) {
         string text=Json.Write(info);using(var db=Open())db.Transaction(()=> { db.Execute("INSERT OR REPLACE INTO posts VALUES(?,?,?,?,?)",p.Id,p.UserId,p.User,p.Date,text);db.Execute("INSERT OR REPLACE INTO task_posts VALUES(?,?,?)",taskId,p.Id,text); });

@@ -20,25 +20,27 @@ using System.Windows.Forms;
 [assembly: System.Reflection.AssemblyTitle("X/推特图片视频下载器")]
 [assembly: System.Reflection.AssemblyProduct("X/推特图片视频下载器")]
 [assembly: System.Reflection.AssemblyCompany("By Codex&上邪上")]
-[assembly: System.Reflection.AssemblyVersion("0.13.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.13.0.0")]
+[assembly: System.Reflection.AssemblyVersion("0.14.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.14.0.0")]
 
 namespace XDownloader {
 class MainWindow : Form {
     TextBox urls=new TextBox(), destination=new TextBox(), logs=new TextBox();
-    Button login=new Button(), start=new Button(), pause=new Button(), cancel=new Button(), folder=new Button();
+    Button login=new Button(), start=new Button(), pause=new Button(), cancel=new Button(), folder=new Button(), recentButton=new Button();
     Label status=new Label(); ProgressBar progress=new ProgressBar();
     NumericUpDown limit=new NumericUpDown(); CheckBox images=new CheckBox(), videos=new CheckBox(), replies=new CheckBox(), skipSensitive=new CheckBox();
     CancellationTokenSource cancellation; bool paused, closing, loginBusy;
     readonly Browser browser;
     readonly string data;
+    readonly RecentDestinations recent;
     readonly StringBuilder runLog=new StringBuilder();
     string lastTaskFolder,activeDiagnostic;
     DateTimePicker fromDate=new DateTimePicker(),toDate=new DateTimePicker(); CheckBox forceDownload=new CheckBox(),strictScan=new CheckBox();
     public MainWindow(bool test) {
         data=test ? Path.Combine(Path.GetTempPath(),"XDownloader-UI") : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"XDownloader");
         browser=new Browser(Path.Combine(data,"ChromeProfile"));
-        Text="X/推特图片视频下载器 · v0.13 · By Codex&上邪上"; Font=new Font("Microsoft YaHei UI",10); BackColor=Color.FromArgb(245,247,251); ForeColor=Color.FromArgb(30,42,58);
+        recent=new RecentDestinations(Path.Combine(data,"recent-destinations.json"));if(!test)recent.Load();
+        Text="X/推特图片视频下载器 · v0.14 · By Codex&上邪上"; Font=new Font("Microsoft YaHei UI",10); BackColor=Color.FromArgb(245,247,251); ForeColor=Color.FromArgb(30,42,58);
         Icon=System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         ClientSize=new Size(960,840); MinimumSize=new Size(940,810); StartPosition=FormStartPosition.CenterScreen; AutoScaleMode=AutoScaleMode.Dpi;
         var layout=new TableLayoutPanel { Dock=DockStyle.Fill, Padding=new Padding(26), ColumnCount=1, RowCount=13 };
@@ -47,14 +49,14 @@ class MainWindow : Form {
         Controls.Add(layout);
         var heading=new FlowLayoutPanel { Dock=DockStyle.Fill,WrapContents=false };
         heading.Controls.Add(new Label { Text="X/推特图片视频下载器",Font=new Font(Font.FontFamily,21,FontStyle.Bold),AutoSize=true,UseMnemonic=false });
-        heading.Controls.Add(new Label { Text="v0.13  ·  By Codex&上邪上",Font=new Font(Font.FontFamily,11),AutoSize=true,UseMnemonic=false,Margin=new Padding(12,14,0,0),ForeColor=Color.DimGray });
+        heading.Controls.Add(new Label { Text="v0.14  ·  By Codex&上邪上",Font=new Font(Font.FontFamily,11),AutoSize=true,UseMnemonic=false,Margin=new Padding(12,14,0,0),ForeColor=Color.DimGray });
         var headingRow=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=2,RowCount=1 };
         headingRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));headingRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,94));
         headingRow.Controls.Add(heading,0,0);
         var changelog=new Button();Style(changelog,"更新日志",86);changelog.AccessibleName="查看最近六个版本的更新日志";
         changelog.Click+=delegate {
-            using(var dialog=new Form { Text="更新日志 · v0.13 至 v0.9",StartPosition=FormStartPosition.CenterParent,ClientSize=new Size(700,570),MinimizeBox=false,MaximizeBox=false,ShowInTaskbar=false,FormBorderStyle=FormBorderStyle.FixedDialog,BackColor=BackColor,ForeColor=ForeColor }) {
-                var content=new TextBox { Multiline=true,ReadOnly=true,WordWrap=true,ScrollBars=ScrollBars.Vertical,Dock=DockStyle.Fill,BorderStyle=BorderStyle.None,BackColor=Color.White,ForeColor=Color.FromArgb(35,45,60),Font=new Font("Microsoft YaHei UI",11),Text=Changelog.Content,Padding=new Padding(8),AccessibleName="v0.13 至 v0.9 更新内容" };
+            using(var dialog=new Form { Text="更新日志 · v0.14 至 v0.10",StartPosition=FormStartPosition.CenterParent,ClientSize=new Size(700,570),MinimizeBox=false,MaximizeBox=false,ShowInTaskbar=false,FormBorderStyle=FormBorderStyle.FixedDialog,BackColor=BackColor,ForeColor=ForeColor }) {
+                var content=new TextBox { Multiline=true,ReadOnly=true,WordWrap=true,ScrollBars=ScrollBars.Vertical,Dock=DockStyle.Fill,BorderStyle=BorderStyle.None,BackColor=Color.White,ForeColor=Color.FromArgb(35,45,60),Font=new Font("Microsoft YaHei UI",11),Text=Changelog.Content,Padding=new Padding(8),AccessibleName="v0.14 至 v0.10 更新内容" };
                 dialog.Controls.Add(content);dialog.ShowDialog(this);
             }
         };
@@ -67,11 +69,14 @@ class MainWindow : Form {
         layout.Controls.Add(new Label { Text="2  @用户名 / 用户主页 / 单条帖子链接（仅限输入一位用户）",Dock=DockStyle.Fill },0,3);
         urls.Multiline=true; urls.ScrollBars=ScrollBars.Vertical; urls.Dock=DockStyle.Fill; urls.BorderStyle=BorderStyle.FixedSingle;
         urls.AccessibleName="用户或帖子链接"; layout.Controls.Add(urls,0,4);
-        layout.Controls.Add(new Label { Text="3  保存位置",Dock=DockStyle.Fill, Padding=new Padding(0,5,0,0) },0,5);
-        var pathRow=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=2 }; pathRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));pathRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,100));
+        layout.Controls.Add(new Label { Text="3  保存根目录（自动按用户和任务归档）",Dock=DockStyle.Fill, Padding=new Padding(0,5,0,0) },0,5);
+        var pathRow=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=3 }; pathRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));pathRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,100));pathRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,126));
         destination.Dock=DockStyle.Fill; destination.AccessibleName="保存位置"; destination.Text=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),"X Downloads");
         if(!test && File.Exists(Path.Combine(data,"settings.json"))) try { var s=Json.Read(File.ReadAllText(Path.Combine(data,"settings.json"))); if(Path.IsPathRooted(Json.Str(s,"folder"))) destination.Text=Json.Str(s,"folder"); } catch {}
         Style(folder,"浏览…",90); pathRow.Controls.Add(destination,0,0);pathRow.Controls.Add(folder,1,0);layout.Controls.Add(pathRow,0,6);
+        Style(recentButton,"最近目的地",116);recentButton.AccessibleName="查看并复用最近五次任务的保存目的地";pathRow.Controls.Add(recentButton,2,0);
+        destination.TextChanged+=delegate { lastTaskFolder=null; };
+        recentButton.Click+=delegate { using(var dialog=new RecentDestinationsWindow(recent))if(dialog.ShowDialog(this)==DialogResult.OK) { destination.Text=dialog.Selected.root;lastTaskFolder=dialog.Selected.folder;try { SaveSettings(destination.Text); }catch(Exception ex) { Error(ex); }Log("已复用保存根目录："+destination.Text+"；下载用户和筛选设置未改变。"); } };
         var actions=new FlowLayoutPanel { Dock=DockStyle.Fill };
         Style(start,"开始 / 重试",160);start.BackColor=Color.FromArgb(31,99,221);start.ForeColor=Color.White;
         Style(pause,"暂停",90);Style(cancel,"取消",90);pause.Enabled=cancel.Enabled=false;
@@ -85,7 +90,7 @@ class MainWindow : Form {
                 using(var choose=new FolderBrowserDialog { Description="选择要导出的任务文件夹",SelectedPath=lastTaskFolder??destination.Text }) { if(choose.ShowDialog(this)!=DialogResult.OK)return;selected=choose.SelectedPath; }
                 using(var save=new SaveFileDialog { Title="按需导出任务与帖子记录",Filter="JSON 文件|*.json",FileName=Path.GetFileName(selected)+"_导出.json" }) {
                     if(save.ShowDialog(this)!=DialogResult.OK)return;
-                    new History(destination.Text).Export(selected,save.FileName);Log("任务记录已导出。");
+                    new History(TaskArchive.SaveRoot(destination.Text)).Export(selected,save.FileName);Log("任务记录已导出。");
                 }
             }catch(Exception ex) { Error(ex); }
         };
@@ -104,9 +109,11 @@ class MainWindow : Form {
         fromDate.AccessibleName="开始日期 UTC，不勾选为不限";toDate.AccessibleName="结束日期 UTC，不勾选为不限";
         if(!test && File.Exists(Path.Combine(data,"settings.json")))try { var settings=Json.Read(File.ReadAllText(Path.Combine(data,"settings.json")));DateTime day;if(DateTime.TryParseExact(Json.Str(settings,"from"),"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.None,out day)) { fromDate.Value=day;fromDate.Checked=true; }if(DateTime.TryParseExact(Json.Str(settings,"to"),"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.None,out day)) { toDate.Value=day;toDate.Checked=true; }skipSensitive.Checked=Object.Equals(Json.Get(settings,"skipSensitive"),true); }catch {}
         Log("默认跨任务校验去重；勾选日期可限定范围（UTC，包含结束日）。日期和媒体类型均匹配的帖子计入上限。");
+        if(recent.Warning!=null)Log(recent.Warning);
+        try { var previous=recent.Items.FirstOrDefault(x=>TaskArchive.Full(x.root).Equals(TaskArchive.Full(destination.Text),StringComparison.OrdinalIgnoreCase));if(previous!=null)lastTaskFolder=previous.folder; }catch { }
         login.Click+=async delegate { loginBusy=true;login.Enabled=start.Enabled=false; try { await browser.Open(CancellationToken.None);Log("已连接 Chrome（尚未验证 X 登录）。请在浏览器完成登录，再点击「开始 / 重试」。"); } catch(Exception ex) { Error(ex); } finally { loginBusy=false;if(!IsDisposed) login.Enabled=start.Enabled=true; } };
-        folder.Click+=delegate { using(var dialog=new FolderBrowserDialog { Description="选择媒体保存目录",SelectedPath=destination.Text }) if(dialog.ShowDialog(this)==DialogResult.OK) destination.Text=dialog.SelectedPath; };
-        open.Click+=delegate { try { if(Directory.Exists(lastTaskFolder??destination.Text)) Process.Start(new ProcessStartInfo(lastTaskFolder??destination.Text) { UseShellExecute=true });else Log("保存目录尚未创建。"); } catch { Log("无法打开保存目录。"); } };
+        folder.Click+=delegate { using(var dialog=new FolderBrowserDialog { Description="选择媒体保存根目录",SelectedPath=destination.Text }) if(dialog.ShowDialog(this)==DialogResult.OK)try { destination.Text=TaskArchive.SaveRoot(dialog.SelectedPath);SaveSettings(destination.Text); }catch(Exception ex) { Error(ex); } };
+        open.Click+=delegate { try { if(Directory.Exists(lastTaskFolder??destination.Text)) Process.Start(new ProcessStartInfo(lastTaskFolder??destination.Text) { UseShellExecute=true });else Log("保存目录不存在或不可访问，请查看最近目的地或重新选择保存位置。"); } catch { Log("无法打开保存目录。"); } };
         start.Click+=async delegate { await Run(); };
         pause.Click+=delegate { paused=!paused;pause.Text=paused?"继续":"暂停";status.Text=paused?"已暂停 · 点击继续恢复":"下载中…"; };
         cancel.Click+=delegate { if(cancellation!=null) cancellation.Cancel(); };
@@ -131,6 +138,8 @@ class MainWindow : Form {
         else Log("操作失败（"+ex.GetType().Name+"）。请重试；日志不会输出登录凭证。");
     }
     async Task Wait(CancellationToken ct) { while(paused) await Task.Delay(200,ct); ct.ThrowIfCancellationRequested(); }
+    void SaveSettings(string root) { Directory.CreateDirectory(data);Downloader.AtomicText(Path.Combine(data,"settings.json"),Json.Write(new { folder=root,from=fromDate.Checked?fromDate.Value.ToString("yyyy-MM-dd"):"",to=toDate.Checked?toDate.Value.ToString("yyyy-MM-dd"):"",skipSensitive=skipSensitive.Checked })); }
+    void Remember(TaskArchive archive) { try { recent.Remember(archive.Recent()); }catch { Log("最近目的地未能写入本机设置；媒体与诊断记录仍保存在任务目录。"); } }
     async Task Run() {
         var targets=new List<Target>();string root;DateRange range;MediaSelection mediaSelection;
         try {
@@ -143,38 +152,45 @@ class MainWindow : Form {
             if(!images.Checked && !videos.Checked)throw new UserError("请至少选择图片或视频。");
             mediaSelection=new MediaSelection(images.Checked,videos.Checked,skipSensitive.Checked);
             if(!Path.IsPathRooted(destination.Text.Trim()))throw new UserError("请选择完整保存路径。");
-            root=Path.GetFullPath(destination.Text.Trim());if(root.Length>120)throw new UserError("保存路径过长，请选择较短目录。");
+            root=TaskArchive.SaveRoot(destination.Text);if(root.Length>100)throw new UserError("按用户归档需要较短路径，请将保存根目录缩短至 100 个字符以内。");
+            TaskArchive.CheckPath(root,root);destination.Text=root;
             Directory.CreateDirectory(root);Directory.CreateDirectory(data);
-            Downloader.AtomicText(Path.Combine(data,"settings.json"),Json.Write(new { folder=root,from=fromDate.Checked?fromDate.Value.ToString("yyyy-MM-dd"):"",to=toDate.Checked?toDate.Value.ToString("yyyy-MM-dd"):"",skipSensitive=skipSensitive.Checked }));
+            SaveSettings(root);
         }catch(Exception ex) { Error(ex);return; }
         cancellation=new CancellationTokenSource();var ct=cancellation.Token;paused=false;
         runLog.Clear();logs.Clear();
-        start.Enabled=login.Enabled=folder.Enabled=urls.Enabled=destination.Enabled=images.Enabled=videos.Enabled=replies.Enabled=limit.Enabled=fromDate.Enabled=toDate.Enabled=forceDownload.Enabled=strictScan.Enabled=skipSensitive.Enabled=false;
+        start.Enabled=login.Enabled=folder.Enabled=recentButton.Enabled=urls.Enabled=destination.Enabled=images.Enabled=videos.Enabled=replies.Enabled=limit.Enabled=fromDate.Enabled=toDate.Enabled=forceDownload.Enabled=strictScan.Enabled=skipSensitive.Enabled=false;
         pause.Enabled=cancel.Enabled=true;progress.Style=ProgressBarStyle.Marquee;
         int saved=0,repaired=0,skipped=0,failed=0,uncertain=0,posts=0,sensitiveSkipped=0,sensitivityUnknown=0;bool interrupted=false,keepPage=false;
-        var reports=new List<object>(); string reportFile=Path.Combine(root,"运行记录_"+DateTime.Now.ToString("yyyyMMdd_HHmmss_fff")+".诊断.txt");History history=null;
+        var reports=new List<object>(); string reportFile=Path.Combine(root,"运行记录_"+DateTime.Now.ToString("yyyyMMdd_HHmmss_fff")+".诊断.txt");History history=null;TaskArchive archive=null;bool historyReady=false,taskBegun=false;
+        Action<string,string,string> establish=(user,id,nickname)=> {
+            bool first=!archive.Finalized;
+            archive.FinalizeAccount(user,id,nickname,history);root=archive.Folder;reportFile=activeDiagnostic=archive.Diagnostic;lastTaskFolder=root;
+            if(!taskBegun) {
+                history.BeginTask(root,new { targets=targets.Select(t=>t.Url).ToArray(),user=archive.User,userId=archive.UserId,displayName=archive.DisplayName,saveRoot=archive.Root,taskFolder=archive.Folder,from=range.Start,to=range.End,images=images.Checked,videos=videos.Checked,skipSensitive=skipSensitive.Checked,limit=limit.Value,force=forceDownload.Checked,strictScan=strictScan.Checked });taskBegun=true;
+            }
+            if(first) { Remember(archive);Log(archive.UserId==""?"未取得可用用户 ID，本次任务保留在 @"+archive.User+"_待确认 下；不会按用户名猜测账号身份。":"账号归档：@"+archive.User+" · ID "+archive.UserId);Log("保存目录："+root); }
+        };
         try {
             history=new History(root);
-            root=Path.Combine(root,"任务_"+DateTime.Now.ToString("yyyyMMdd_HHmmss_fff")+"_"+Guid.NewGuid().ToString("N").Substring(0,6));
-            Directory.CreateDirectory(Path.Combine(root,"_记录"));lastTaskFolder=root;
-            reportFile=Path.Combine(root,"_记录","运行记录_"+DateTime.Now.ToString("yyyyMMdd_HHmmss_fff")+".诊断.txt");
+            archive=new TaskArchive(root,targets[0].User);root=archive.Folder;lastTaskFolder=root;
+            reportFile=archive.Diagnostic;
             activeDiagnostic=reportFile;
-            Log("v0.13 · X 敏感标记筛选；保留集中记录与诊断日志。");
-            Log("正在检查历史任务记录…");await Task.Run(()=>history.Load(ct),ct);Log("已加载历史记录 "+history.Imported+" 条；旧 JSON 保留原件。");
-            history.BeginTask(root,new { targets=targets.Select(t=>t.Url).ToArray(),from=range.Start,to=range.End,images=images.Checked,videos=videos.Checked,skipSensitive=skipSensitive.Checked,limit=limit.Value,force=forceDownload.Checked,strictScan=strictScan.Checked });
-            Log("保存目录："+root);
+            Log("v0.14 · 按用户 ID 归档任务；本机保留最近 5 次任务目的地。");Remember(archive);
+            Log("正在检查历史任务记录…");await Task.Run(()=>history.Load(ct),ct);historyReady=true;Log("已加载历史记录 "+history.Imported+" 条；旧 JSON 保留原件。");
             await browser.Connect(ct);await browser.AttachPage(ct);
             var worker=new Downloader(browser,Log,Wait,history);
             foreach(var target in targets) {
                 await Wait(ct);status.Text="扫描 @"+target.User+"…";
                 try {
                     var scan=await browser.Scan(target,(int)limit.Value,replies.Checked,Log,async post=> {
+                        establish(post.User,post.UserId,post.DisplayName);
                         posts++;Log("帖子 "+post.Id+"：识别 "+post.Media.Count+" 个媒体");
                         bool complete=true;
                         foreach(var warning in post.Warnings) { failed++;complete=false;Log(warning); }
                         string dir=Path.Combine(root,"_记录");Directory.CreateDirectory(dir);
 
-                        history.PostInfo(post,new { postId=post.Id,user=post.User,userId=post.UserId,text=post.Text,date=post.Date,url="https://x.com/"+post.User+"/status/"+post.Id,possiblySensitive=post.PossiblySensitive,media=post.Media,mediaCount=post.Media.Count,completed=false });
+                        history.PostInfo(post,new { postId=post.Id,user=post.User,userId=post.UserId,displayName=post.DisplayName,text=post.Text,date=post.Date,url="https://x.com/"+post.User+"/status/"+post.Id,possiblySensitive=post.PossiblySensitive,media=post.Media,mediaCount=post.Media.Count,completed=false });
                         int selected=0;
                         foreach(var media in post.Media) {
                             if(media.Kind=="photo"?!images.Checked:!videos.Checked)continue;
@@ -196,8 +212,8 @@ class MainWindow : Form {
                             await Task.Delay(1000,ct);
                         }
                         if(selected==0 && post.Media.Count>0)Log("本帖没有所选类型的可保存媒体。");
-                        history.PostInfo(post,new { postId=post.Id,user=post.User,userId=post.UserId,text=post.Text,date=post.Date,url="https://x.com/"+post.User+"/status/"+post.Id,possiblySensitive=post.PossiblySensitive,media=post.Media,mediaCount=post.Media.Count,selectedCount=selected,sensitiveSkippedCount=post.Media.Count(a=>(a.Kind=="photo"?images.Checked:videos.Checked) && skipSensitive.Checked && a.PossiblySensitive==true),completed=complete,images=images.Checked,videos=videos.Checked,skipSensitive=skipSensitive.Checked,warnings=post.Warnings });
-                    },Wait,ct,range.Accept,strictScan.Checked?null:range,mediaSelection);
+                        history.PostInfo(post,new { postId=post.Id,user=post.User,userId=post.UserId,displayName=post.DisplayName,text=post.Text,date=post.Date,url="https://x.com/"+post.User+"/status/"+post.Id,possiblySensitive=post.PossiblySensitive,media=post.Media,mediaCount=post.Media.Count,selectedCount=selected,sensitiveSkippedCount=post.Media.Count(a=>(a.Kind=="photo"?images.Checked:videos.Checked) && skipSensitive.Checked && a.PossiblySensitive==true),completed=complete,images=images.Checked,videos=videos.Checked,skipSensitive=skipSensitive.Checked,warnings=post.Warnings });
+                    },Wait,ct,range.Accept,strictScan.Checked?null:range,mediaSelection,establish);
                     sensitiveSkipped+=scan.SensitiveSkipped;sensitivityUnknown+=scan.SensitivityUnknown;
                     if((!scan.End && !scan.Reason.Contains("上限") && !scan.Reason.StartsWith("日期边界收尾")) || scan.Rejected>0)uncertain++;
                     if(!scan.End && scan.Posts==0)keepPage=true;
@@ -208,9 +224,10 @@ class MainWindow : Form {
             }
             status.Text=posts==0?(sensitiveSkipped>0?"匹配媒体均被 X 敏感标记筛除":"未读取到匹配帖子 · 请查看运行记录"):failed>0 || uncertain>0 || range.Unknown>0?"结束 · 有失败或扫描范围未确认，查看日志":"结束 · 新增 "+saved+" 个 / 修复 "+repaired+" 个 / 已存在 "+skipped+" 个 / 敏感筛除 "+sensitiveSkipped+" 个";
         }catch(Exception ex) { interrupted=true;status.Text="已停止 · 已完成文件保留";if(ex is OperationCanceledException && ct.IsCancellationRequested)Log("已按你的操作停止；已完成文件保留。");else { keepPage=true;Error(ex); } }
+        if(archive!=null && historyReady && !taskBegun)try { establish(targets[0].User,"",""); }catch(Exception ex) { Error(ex); }
         try { if(keepPage)Log("已保留 Chrome 任务标签页，便于检查页面是否显示媒体、登录或验证提示。");else await browser.ClosePage(); } finally {
             try {
-                if(history!=null)history.EndTask(new { version="0.13",limit=(int)limit.Value,replies=replies.Checked,images=images.Checked,videos=videos.Checked,skipSensitive=skipSensitive.Checked,sensitiveSkipped=sensitiveSkipped,sensitivityUnknown=sensitivityUnknown,targets=targets.Select(t=>t.Url).ToArray(),time=DateTimeOffset.Now.ToString("o"),interrupted=interrupted,posts=posts,saved=saved,repaired=repaired,dateOutside=range.Outside,dateUnknown=range.Unknown,from=range.Start.HasValue?range.Start.Value.ToString("yyyy-MM-dd"):null,to=range.End.HasValue?range.End.Value.ToString("yyyy-MM-dd"):null,timeZone="UTC",force=forceDownload.Checked,strictScan=strictScan.Checked,skipped=skipped,failed=failed,unconfirmed=uncertain,reports=reports },interrupted);
+                if(history!=null)history.EndTask(new { version="0.14",user=archive==null?targets[0].User:archive.User,userId=archive==null?"":archive.UserId,displayName=archive==null?"":archive.DisplayName,saveRoot=archive==null?destination.Text:archive.Root,taskFolder=root,limit=(int)limit.Value,replies=replies.Checked,images=images.Checked,videos=videos.Checked,skipSensitive=skipSensitive.Checked,sensitiveSkipped=sensitiveSkipped,sensitivityUnknown=sensitivityUnknown,targets=targets.Select(t=>t.Url).ToArray(),time=DateTimeOffset.Now.ToString("o"),interrupted=interrupted,posts=posts,saved=saved,repaired=repaired,dateOutside=range.Outside,dateUnknown=range.Unknown,from=range.Start.HasValue?range.Start.Value.ToString("yyyy-MM-dd"):null,to=range.End.HasValue?range.End.Value.ToString("yyyy-MM-dd"):null,timeZone="UTC",force=forceDownload.Checked,strictScan=strictScan.Checked,skipped=skipped,failed=failed,unconfirmed=uncertain,reports=reports },interrupted);
             }catch(Exception ex) { Error(ex);Log("任务汇总未写入数据库，请保留诊断日志。"); }
             try {
                 Log("日期过滤：范围外 "+range.Outside+" 篇，时间无法解析 "+range.Unknown+" 篇。");
@@ -221,8 +238,9 @@ class MainWindow : Form {
                 if(diagnostic!=null)Downloader.AtomicText(diagnostic,runLog.ToString());
             }catch(Exception ex) { Error(ex); }
             activeDiagnostic=null;browser.Dispose();cancellation.Dispose();cancellation=null;paused=false;pause.Text="暂停";
+            if(archive!=null)Remember(archive);
             progress.Style=ProgressBarStyle.Blocks;progress.Value=0;
-            start.Enabled=login.Enabled=folder.Enabled=urls.Enabled=destination.Enabled=images.Enabled=videos.Enabled=replies.Enabled=limit.Enabled=fromDate.Enabled=toDate.Enabled=forceDownload.Enabled=strictScan.Enabled=skipSensitive.Enabled=true;
+            start.Enabled=login.Enabled=folder.Enabled=recentButton.Enabled=urls.Enabled=destination.Enabled=images.Enabled=videos.Enabled=replies.Enabled=limit.Enabled=fromDate.Enabled=toDate.Enabled=forceDownload.Enabled=strictScan.Enabled=skipSensitive.Enabled=true;
             pause.Enabled=cancel.Enabled=false;if(closing)Close();
         }
     }

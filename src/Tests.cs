@@ -143,7 +143,110 @@ static class Tests {
             }
             await FeatureTests(dir);
             await StorageTests(dir);
+            await ArchiveTests(dir);
+            await NicknameTests(dir);
         } finally { Directory.Delete(dir,true); }
+    }
+    static async Task NicknameTests(string dir) {
+        var tweet=Fixture("tester","555");Model.At(tweet,"core","user_results","result","core")["name"]="显示昵称😀";
+        Check(Parse(tweet).Posts[0].DisplayName=="显示昵称😀","display nickname parsed separately from handle");
+        Model.At(tweet,"core","user_results","result")["legacy"]=new Dictionary<string,object>{{"name","旧字段昵称"}};
+        Model.At(tweet,"core","user_results","result","core").Remove("name");
+        Check(Parse(tweet).Posts[0].DisplayName=="旧字段昵称","legacy display nickname supported");
+        var ct=CancellationToken.None;string root=Path.Combine(dir,"nick");Directory.CreateDirectory(root);
+        var history=new History(root);history.Load(ct);var task=new TaskArchive(root,"tester");
+        string oldAccount=Path.Combine(root,"@tester_42"),oldTask=Path.Combine(oldAccount,task.Key);Directory.CreateDirectory(oldAccount);Directory.Move(task.Folder,oldTask);
+        var oldRecent=new RecentDestination { key=task.Key,root=root,folder=oldTask,user="tester",userId="42",started=task.Started };
+        var recent=new RecentDestinations(Path.Combine(dir,"nickrecent.json"));recent.Remember(oldRecent);
+        var post=Parse(Fixture("tester","556")).Posts[0];post.UserId="42";post.Date="Sun Sep 20 10:00:00 +0000 2026";
+        history.BeginTask(oldTask,new { taskFolder=oldTask });
+        history.PostInfo(post,new { displayName="中文/昵称😀" });
+        using(var browser=new FakeBrowser())await new Downloader(browser,s=>{},t=>Task.FromResult(0),history).Save(post,post.Media[0],oldTask,ct,true);
+        history.EndTask(new { taskFolder=oldTask,saved=1 },false);
+        File.WriteAllText(Path.Combine(oldTask,"_记录","old.诊断.txt"),"keep diagnostic");
+        var next=new TaskArchive(root,"tester");next.FinalizeAccount("tester","42","中文/昵称😀",history);
+        string account=Path.GetDirectoryName(next.Folder),movedTask=Path.Combine(account,task.Key);
+        Check(Path.GetFileName(account)=="中文_昵称😀（@tester）","nickname filename sanitizes slash and preserves Unicode");
+        Check(!Directory.Exists(oldAccount) && File.ReadAllText(Path.Combine(movedTask,"_记录","old.诊断.txt"))=="keep diagnostic","v014 account directory moves without losing diagnostics");
+        Check(history.Find(post,post.Media[0],ct) && history.FoundPath.StartsWith("中文_昵称😀（@tester）\\"),"migration rebases in-memory and persistent dedup paths");
+        string export=Path.Combine(root,"export.json");history.Export(movedTask,export);Check(File.ReadAllText(export).Contains("中文_昵称😀"),"renamed historical task remains exportable");
+        string database=Path.Combine(root,"_下载记录.sqlite"),before=Model.Hash(database);
+        recent.Load();Check(recent.Items[0].folder==movedTask,"recent task path recovers after nickname migration");
+        Check(recent.Items[0].AccountLabel=="中文/昵称😀（@tester）","old recent nickname restored from database without filename sanitization");
+        Check(Model.Hash(database)==before,"viewing recent history leaves database unchanged");
+        string peerRoot=Path.Combine(dir,"peers");Directory.CreateDirectory(peerRoot);
+        var peers=new RecentDestinations(Path.Combine(dir,"peers.json"));
+        var missing=new TaskArchive(peerRoot,"tester").Recent();missing.userId="42";peers.Remember(missing);
+        var unrelated=new TaskArchive(peerRoot,"tester").Recent();unrelated.userId="99";peers.Remember(unrelated);
+        var known=new TaskArchive(peerRoot,"renamed").Recent();known.userId="42";known.displayName="新昵称";peers.Remember(known);peers.Load();
+        Check(peers.Items.Single(x=>x.key==missing.key).AccountLabel=="新昵称（@tester）","same stable ID backfills and persists old recent nickname");
+        Check(peers.Items.Single(x=>x.key==unrelated.key).AccountLabel=="昵称未取得（@tester）","same handle with different ID cannot borrow nickname");
+        Check(!File.Exists(Path.Combine(peerRoot,"_下载记录.sqlite")),"recent nickname lookup never creates a database");
+        history=new History(root);history.Load(ct);Check(history.Find(post,post.Media[0],ct),"migration survives restart without redownload");
+        var changed=new TaskArchive(root,"renamed");changed.FinalizeAccount("renamed","42","另一个昵称",history);Check(Path.GetDirectoryName(changed.Folder)==account,"stable numeric ID preserves same directory after handle and nickname change");
+        for(int state=0;state<2;state++) {
+            string recover=Path.Combine(dir,"recover"+state);Directory.CreateDirectory(recover);var h=new History(recover);h.Load(ct);
+            string old="@tester_42",renamed="恢复😀（@tester）";string folder=Path.Combine(recover,old,"任务_test");Directory.CreateDirectory(folder);
+            string file=Path.Combine(folder,"image.png");File.WriteAllBytes(file,new byte[]{1,2,3,4});h.Persist(post,post.Media[0],file,4,Model.Hash(file),"complete");
+            using(var db=new RecordDb(Path.Combine(recover,"_下载记录.sqlite"))) { db.Execute("INSERT INTO account_folders VALUES('42',?)",old);db.Execute("INSERT INTO folder_moves VALUES(?,?,'pending')",old,renamed); }
+            if(state==1)Directory.Move(Path.Combine(recover,old),Path.Combine(recover,renamed));
+            h=new History(recover);h.Load(ct);
+            Check(h.Find(post,post.Media[0],ct) && h.FoundPath.StartsWith(renamed+"\\"),"folder migration recovers crash "+state);
+            using(var db=new RecordDb(Path.Combine(recover,"_下载记录.sqlite")))Check(db.Query("SELECT path FROM account_folders WHERE user_id='42'")[0][0]==renamed,"recovery updates stable identity mapping");
+        }
+    }
+    static async Task ArchiveTests(string dir) {
+        string root=Path.Combine(dir,"archive");Directory.CreateDirectory(root);var ct=CancellationToken.None;
+        var history=new History(root);history.Load(ct);
+        var first=new TaskArchive(root,"tester");string staging=first.Folder;
+        File.WriteAllText(first.Diagnostic,"diagnostic survives account resolution");
+        first.FinalizeAccount("tester","42","测试昵称",history);
+        Check(Path.GetFileName(Path.GetDirectoryName(first.Folder))=="测试昵称（@tester）","account directory includes handle and stable ID");
+        Check(File.ReadAllText(first.Diagnostic)=="diagnostic survives account resolution" && !Directory.Exists(staging),"only new task relocated with diagnostic preserved");
+        Check(!Directory.Exists(Path.GetDirectoryName(staging)),"empty staging parent removed");
+        Check(TaskArchive.SaveRoot(first.Folder)==root,"task selection resolves original database root");
+        var p=Parse(Fixture("tester","987")).Posts[0];p.UserId="42";p.Date="Sun Sep 20 10:00:00 +0000 2026";var a=p.Media[0];
+        using(var browser=new FakeBrowser()) {
+            history.BeginTask(first.Folder,new { user=first.User,userId=first.UserId });
+            await new Downloader(browser,s=>{},t=>Task.FromResult(0),history).Save(p,a,first.Folder,ct,true);history.EndTask(new { saved=1 },false);
+            string original=Path.Combine(first.Folder,Downloader.Stem(p,a)+".png");
+            var second=new TaskArchive(root,"renamed");second.FinalizeAccount("renamed","42");
+            Check(Path.GetDirectoryName(first.Folder)==Path.GetDirectoryName(second.Folder) && first.Folder!=second.Folder,"renamed account reuses stable directory with unique task");
+            p.User="renamed";history=new History(root);history.Load(ct);history.BeginTask(second.Folder,new { });
+            Check(history.Find(p,a,ct) && File.Exists(original),"new layout dedup survives restart and renamed handle");history.Result(p,a,"skipped");
+            Check(Directory.GetFiles(second.Folder,"*.png").Length==0,"historical media is not copied into new task");
+            File.Delete(original);history=new History(root);history.Load(ct);history.BeginTask(second.Folder,new { repair=true });
+            Check(!history.Find(p,a,ct) && history.LastRepair,"missing historical account media requires repair");
+            await new Downloader(browser,s=>{},t=>Task.FromResult(0),history).Save(p,a,second.Folder,ct,true);
+            Check(history.Find(p,a,ct) && history.FoundPath.StartsWith("测试昵称（@tester）\\"),"repair is recorded in current account task");history.EndTask(new { repaired=1 },false);
+            var other=new TaskArchive(root,"tester");other.FinalizeAccount("tester","99");
+            Check(Path.GetDirectoryName(other.Folder)!=Path.GetDirectoryName(first.Folder),"reused handle with different ID is not merged");
+            Reject(()=>second.FinalizeAccount("renamed","99"),"identity change during task stops");
+            string otherRoot=Path.Combine(dir,"other");Directory.CreateDirectory(otherRoot);var independent=new History(otherRoot);independent.Load(ct);
+            Check(!independent.Find(p,a,ct),"different root uses independent history database");
+            string exported=Path.Combine(root,"task-export.json");history.Export(second.Folder,exported);Check(File.ReadAllText(exported).Contains("测试昵称（@tester）"),"nested task export resolves root-relative paths");
+        }
+        var unknown=new TaskArchive(root,"tester");unknown.FinalizeAccount("tester","../bad");
+        Check(unknown.UserId=="" && Path.GetFileName(Path.GetDirectoryName(unknown.Folder))=="@tester_待确认","missing or invalid ID uses explicit fallback");
+        Reject(()=>new TaskArchive(root,"../bad"),"unsafe handle rejected");
+        Reject(()=>TaskArchive.CheckPath(root,Path.Combine(dir,"outside")),"archive path cannot escape root");
+        Reject(()=>new TaskArchive(Path.Combine(root,new string('x',101)),"tester"),"long root rejected before creating directories");
+        string settings=Path.Combine(dir,"recent.json");var recent=new RecentDestinations(settings);
+        recent.Remember(first.Recent());recent.Remember(first.Recent());Check(recent.Items.Count==1,"same task updates recent entry without duplication");
+        for(int i=0;i<6;i++) { var task=new TaskArchive(root,"user"+i);task.FinalizeAccount("user"+i,(100+i).ToString());recent.Remember(task.Recent()); }
+        recent=new RecentDestinations(settings);recent.Load();
+        Check(recent.Items.Count==5 && recent.Items[0].user=="user5" && recent.Items[4].user=="user1","recent last five survive restart in order");
+        Check(recent.Items.All(x=>x.root==root && x.folder!=x.root),"recent keeps root distinct from account task");
+        var missing=recent.Items[0];Directory.Delete(missing.folder,true);recent.Load();Check(recent.Items[0].folder==missing.folder,"missing destination stays available for removal, not silently redirected");
+        recent.Remove(recent.Items[0]);recent=new RecentDestinations(settings);recent.Load();Check(recent.Items.Count==4,"recent removal persists without deleting files");
+        var fromOtherRoot=new TaskArchive(Path.Combine(dir,"other"),"tester");fromOtherRoot.FinalizeAccount("tester","42");recent.Remember(fromOtherRoot.Recent());recent.Load();Check(recent.Items[0].root!=root && recent.Items[1].root==root,"recent roots coexist without merging histories");
+        var changed=first.Recent();changed.folder=Path.Combine(dir,"outside");File.WriteAllText(settings,Json.Write(new { items=new[]{changed} }));recent.Load();Check(recent.Items.Count==0 && recent.Warning!=null,"invalid recent containment rejected");
+        File.WriteAllText(settings,"broken");recent.Load();Check(recent.Items.Count==0 && recent.Warning!=null,"corrupt recent settings do not prevent app startup");
+        using(var scan=new ScanBrowser()) {
+            string userId="";int received=0;
+            await scan.Scan(Target.Parse("tester"),0,true,s=>{},post=> { received++;return Task.FromResult(0); },t=>Task.FromResult(0),ct,post=>false,null,null,(user,id,nickname)=> { userId=id; });
+            Check(userId=="42" && received==0,"profile identity resolves account even when date filter excludes every post");
+        }
     }
     static async Task StorageTests(string dir) {
         string root=Path.Combine(dir,"集中记录'中文");Directory.CreateDirectory(root);
@@ -342,7 +445,7 @@ static class Tests {
             } else if(method=="Page.getFrameTree")response=new { frameTree=new { frame=new { id="frame",url="https://x.com/tester/media" } } };
             else if(method=="Network.getResponseBody") {
                 string id=Json.Str(Json.Read(Json.Write(args)),"requestId");
-                if(id=="profile")response=new { body="{\"data\":{\"user\":{\"result\":{\"__typename\":\"User\",\"core\":{\"screen_name\":\"tester\"},\"privacy\":{\"protected\":false}}}}}",base64Encoded=false };
+                if(id=="profile")response=new { body="{\"data\":{\"user\":{\"result\":{\"__typename\":\"User\",\"rest_id\":\"42\",\"core\":{\"screen_name\":\"tester\"},\"privacy\":{\"protected\":false}}}}}",base64Encoded=false };
                 else if(MediaSequence) {
                     var sequence=new List<object>();
                     for(int i=0;i<23;i++) {

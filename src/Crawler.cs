@@ -47,7 +47,7 @@ partial class Browser {
         var tree=await Call("Page.getFrameTree",new {},ct);var frame=Model.At(tree,"frameTree","frame");Uri u;
         if(!Uri.TryCreate(Json.Str(frame,"url"),UriKind.Absolute,out u) || u.Scheme!="https" || !Model.XHost(u.Host))throw new StopQueue("任务标签页已离开 X，已停止。");
     }
-    public async Task<ScanResult> Scan(Target target,int maxPosts,bool replies,Action<string> log,Func<Post,Task> receive,Func<CancellationToken,Task> wait,CancellationToken ct,Func<Post,bool> include=null,DateRange dateRange=null,MediaSelection selection=null) {
+    public async Task<ScanResult> Scan(Target target,int maxPosts,bool replies,Action<string> log,Func<Post,Task> receive,Func<CancellationToken,Task> wait,CancellationToken ct,Func<Post,bool> include=null,DateRange dateRange=null,MediaSelection selection=null,Action<string,string,string> account=null) {
         events.Clear();
         string source=selection==null?target.Url:selection.Page(target,replies);
         bool postsSource=source!=target.Url;
@@ -111,6 +111,7 @@ partial class Browser {
                 bool profile=op=="UserByScreenName" || op=="UserByRestId";
                 if(profile)profileResponses++;else if(!unknown || batch.Structured)tweetResponses++;
                 log("解析诊断："+op+" · 帖子结构="+(batch.Structured?"是":"否")+" · 匹配帖子="+batch.Posts.Count+" · 过滤="+batch.Rejected);
+                if(account!=null && batch.UserId!="")account(batch.User,batch.UserId,batch.DisplayName);
                 if(profile)continue;
                 // Unknown operations may include recommendations. Keep author/privacy/ID filters,
                 // and never use their end markers to claim the user's timeline has ended.
