@@ -138,11 +138,11 @@ sealed class RecentDestinationsWindow : Form {
         Font=new Font("Microsoft YaHei UI",10);BackColor=Color.FromArgb(245,247,251);
         var layout=new TableLayoutPanel { Dock=DockStyle.Fill,Padding=new Padding(16),RowCount=4,ColumnCount=1 };
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute,32));layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,110));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,42));Controls.Add(layout);
-        layout.Controls.Add(new Label { Text="复用保存根目录；下载用户与筛选条件保持当前设置。",Dock=DockStyle.Fill,AutoSize=true },0,0);
+        layout.Controls.Add(new Label { Text="复用所选账号与保存根目录；保留当前筛选条件，填充后手动开始下载。",Dock=DockStyle.Fill,AutoSize=true },0,0);
         var list=new ListBox { Dock=DockStyle.Fill,HorizontalScrollbar=true,AccessibleName="最近五次任务目的地" };layout.Controls.Add(list,0,1);
         var details=new TextBox { Dock=DockStyle.Fill,Multiline=true,ReadOnly=true,ScrollBars=ScrollBars.Vertical,BackColor=Color.White,AccessibleName="所选任务的完整保存路径" };layout.Controls.Add(details,0,2);
         var actions=new FlowLayoutPanel { Dock=DockStyle.Fill,WrapContents=false };layout.Controls.Add(actions,0,3);
-        var use=new Button { Text="使用保存根目录",Width=160,Height=34 };var open=new Button { Text="打开任务文件夹",Width=160,Height=34 };var remove=new Button { Text="从列表移除",Width=125,Height=34 };var close=new Button { Text="关闭",Width=90,Height=34,DialogResult=DialogResult.Cancel };actions.Controls.AddRange(new Control[]{use,open,remove,close});CancelButton=close;
+        var use=new Button { Text="使用此账号及保存位置",Width=200,Height=34 };var open=new Button { Text="打开任务文件夹",Width=150,Height=34 };var remove=new Button { Text="从列表移除",Width=120,Height=34 };var close=new Button { Text="关闭",Width=80,Height=34,DialogResult=DialogResult.Cancel };actions.Controls.AddRange(new Control[]{use,open,remove,close});CancelButton=close;
         Action refresh=()=> { list.Items.Clear();foreach(var entry in recent.Items)list.Items.Add(entry);if(list.Items.Count>0)list.SelectedIndex=0;else { details.Text="暂无最近任务。完成或停止一次任务后会自动记录。";use.Enabled=open.Enabled=remove.Enabled=false; } };
         list.SelectedIndexChanged+=delegate {
             var entry=list.SelectedItem as RecentDestination;use.Enabled=open.Enabled=remove.Enabled=entry!=null;if(entry==null)return;

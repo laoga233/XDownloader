@@ -20,8 +20,8 @@ using System.Windows.Forms;
 [assembly: System.Reflection.AssemblyTitle("X/推特图片视频下载器")]
 [assembly: System.Reflection.AssemblyProduct("X/推特图片视频下载器")]
 [assembly: System.Reflection.AssemblyCompany("By Codex&上邪上")]
-[assembly: System.Reflection.AssemblyVersion("0.14.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.14.0.0")]
+[assembly: System.Reflection.AssemblyVersion("0.14.1.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.14.1.0")]
 
 namespace XDownloader {
 class MainWindow : Form {
@@ -40,7 +40,7 @@ class MainWindow : Form {
         data=test ? Path.Combine(Path.GetTempPath(),"XDownloader-UI") : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"XDownloader");
         browser=new Browser(Path.Combine(data,"ChromeProfile"));
         recent=new RecentDestinations(Path.Combine(data,"recent-destinations.json"));if(!test)recent.Load();
-        Text="X/推特图片视频下载器 · v0.14 · By Codex&上邪上"; Font=new Font("Microsoft YaHei UI",10); BackColor=Color.FromArgb(245,247,251); ForeColor=Color.FromArgb(30,42,58);
+        Text="X/推特图片视频下载器 · v0.14.1 · By Codex&上邪上"; Font=new Font("Microsoft YaHei UI",10); BackColor=Color.FromArgb(245,247,251); ForeColor=Color.FromArgb(30,42,58);
         Icon=System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         ClientSize=new Size(960,840); MinimumSize=new Size(940,810); StartPosition=FormStartPosition.CenterScreen; AutoScaleMode=AutoScaleMode.Dpi;
         var layout=new TableLayoutPanel { Dock=DockStyle.Fill, Padding=new Padding(26), ColumnCount=1, RowCount=13 };
@@ -49,14 +49,14 @@ class MainWindow : Form {
         Controls.Add(layout);
         var heading=new FlowLayoutPanel { Dock=DockStyle.Fill,WrapContents=false };
         heading.Controls.Add(new Label { Text="X/推特图片视频下载器",Font=new Font(Font.FontFamily,21,FontStyle.Bold),AutoSize=true,UseMnemonic=false });
-        heading.Controls.Add(new Label { Text="v0.14  ·  By Codex&上邪上",Font=new Font(Font.FontFamily,11),AutoSize=true,UseMnemonic=false,Margin=new Padding(12,14,0,0),ForeColor=Color.DimGray });
+        heading.Controls.Add(new Label { Text="v0.14.1  ·  By Codex&上邪上",Font=new Font(Font.FontFamily,11),AutoSize=true,UseMnemonic=false,Margin=new Padding(12,14,0,0),ForeColor=Color.DimGray });
         var headingRow=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=2,RowCount=1 };
         headingRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));headingRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,94));
         headingRow.Controls.Add(heading,0,0);
         var changelog=new Button();Style(changelog,"更新日志",86);changelog.AccessibleName="查看最近六个版本的更新日志";
         changelog.Click+=delegate {
-            using(var dialog=new Form { Text="更新日志 · v0.14 至 v0.10",StartPosition=FormStartPosition.CenterParent,ClientSize=new Size(700,570),MinimizeBox=false,MaximizeBox=false,ShowInTaskbar=false,FormBorderStyle=FormBorderStyle.FixedDialog,BackColor=BackColor,ForeColor=ForeColor }) {
-                var content=new TextBox { Multiline=true,ReadOnly=true,WordWrap=true,ScrollBars=ScrollBars.Vertical,Dock=DockStyle.Fill,BorderStyle=BorderStyle.None,BackColor=Color.White,ForeColor=Color.FromArgb(35,45,60),Font=new Font("Microsoft YaHei UI",11),Text=Changelog.Content,Padding=new Padding(8),AccessibleName="v0.14 至 v0.10 更新内容" };
+            using(var dialog=new Form { Text="更新日志 · v0.14.1 至 v0.11",StartPosition=FormStartPosition.CenterParent,ClientSize=new Size(700,570),MinimizeBox=false,MaximizeBox=false,ShowInTaskbar=false,FormBorderStyle=FormBorderStyle.FixedDialog,BackColor=BackColor,ForeColor=ForeColor }) {
+                var content=new TextBox { Multiline=true,ReadOnly=true,WordWrap=true,ScrollBars=ScrollBars.Vertical,Dock=DockStyle.Fill,BorderStyle=BorderStyle.None,BackColor=Color.White,ForeColor=Color.FromArgb(35,45,60),Font=new Font("Microsoft YaHei UI",11),Text=Changelog.Content,Padding=new Padding(8),AccessibleName="v0.14.1 至 v0.11 更新内容" };
                 dialog.Controls.Add(content);dialog.ShowDialog(this);
             }
         };
@@ -74,9 +74,9 @@ class MainWindow : Form {
         destination.Dock=DockStyle.Fill; destination.AccessibleName="保存位置"; destination.Text=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),"X Downloads");
         if(!test && File.Exists(Path.Combine(data,"settings.json"))) try { var s=Json.Read(File.ReadAllText(Path.Combine(data,"settings.json"))); if(Path.IsPathRooted(Json.Str(s,"folder"))) destination.Text=Json.Str(s,"folder"); } catch {}
         Style(folder,"浏览…",90); pathRow.Controls.Add(destination,0,0);pathRow.Controls.Add(folder,1,0);layout.Controls.Add(pathRow,0,6);
-        Style(recentButton,"最近目的地",116);recentButton.AccessibleName="查看并复用最近五次任务的保存目的地";pathRow.Controls.Add(recentButton,2,0);
+        Style(recentButton,"最近目的地",116);recentButton.AccessibleName="查看并复用最近五次任务的账号及保存位置";pathRow.Controls.Add(recentButton,2,0);
         destination.TextChanged+=delegate { lastTaskFolder=null; };
-        recentButton.Click+=delegate { using(var dialog=new RecentDestinationsWindow(recent))if(dialog.ShowDialog(this)==DialogResult.OK) { destination.Text=dialog.Selected.root;lastTaskFolder=dialog.Selected.folder;try { SaveSettings(destination.Text); }catch(Exception ex) { Error(ex); }Log("已复用保存根目录："+destination.Text+"；下载用户和筛选设置未改变。"); } };
+        recentButton.Click+=delegate { using(var dialog=new RecentDestinationsWindow(recent))if(dialog.ShowDialog(this)==DialogResult.OK)try { string link="https://x.com/"+Target.Parse(dialog.Selected.user).User;destination.Text=dialog.Selected.root;urls.Text=link;lastTaskFolder=dialog.Selected.folder;try { SaveSettings(destination.Text); }catch(Exception ex) { Error(ex); }Log("已填入历史账号："+link+"；保存根目录："+destination.Text+"。筛选条件保持不变，请点击「开始 / 重试」开始下载。"); }catch(Exception ex) { Error(ex); } };
         var actions=new FlowLayoutPanel { Dock=DockStyle.Fill };
         Style(start,"开始 / 重试",160);start.BackColor=Color.FromArgb(31,99,221);start.ForeColor=Color.White;
         Style(pause,"暂停",90);Style(cancel,"取消",90);pause.Enabled=cancel.Enabled=false;
@@ -176,7 +176,7 @@ class MainWindow : Form {
             archive=new TaskArchive(root,targets[0].User);root=archive.Folder;lastTaskFolder=root;
             reportFile=archive.Diagnostic;
             activeDiagnostic=reportFile;
-            Log("v0.14 · 按用户 ID 归档任务；本机保留最近 5 次任务目的地。");Remember(archive);
+            Log("v0.14.1 · 按用户 ID 归档任务；本机保留最近 5 次任务目的地。");Remember(archive);
             Log("正在检查历史任务记录…");await Task.Run(()=>history.Load(ct),ct);historyReady=true;Log("已加载历史记录 "+history.Imported+" 条；旧 JSON 保留原件。");
             await browser.Connect(ct);await browser.AttachPage(ct);
             var worker=new Downloader(browser,Log,Wait,history);
@@ -227,7 +227,7 @@ class MainWindow : Form {
         if(archive!=null && historyReady && !taskBegun)try { establish(targets[0].User,"",""); }catch(Exception ex) { Error(ex); }
         try { if(keepPage)Log("已保留 Chrome 任务标签页，便于检查页面是否显示媒体、登录或验证提示。");else await browser.ClosePage(); } finally {
             try {
-                if(history!=null)history.EndTask(new { version="0.14",user=archive==null?targets[0].User:archive.User,userId=archive==null?"":archive.UserId,displayName=archive==null?"":archive.DisplayName,saveRoot=archive==null?destination.Text:archive.Root,taskFolder=root,limit=(int)limit.Value,replies=replies.Checked,images=images.Checked,videos=videos.Checked,skipSensitive=skipSensitive.Checked,sensitiveSkipped=sensitiveSkipped,sensitivityUnknown=sensitivityUnknown,targets=targets.Select(t=>t.Url).ToArray(),time=DateTimeOffset.Now.ToString("o"),interrupted=interrupted,posts=posts,saved=saved,repaired=repaired,dateOutside=range.Outside,dateUnknown=range.Unknown,from=range.Start.HasValue?range.Start.Value.ToString("yyyy-MM-dd"):null,to=range.End.HasValue?range.End.Value.ToString("yyyy-MM-dd"):null,timeZone="UTC",force=forceDownload.Checked,strictScan=strictScan.Checked,skipped=skipped,failed=failed,unconfirmed=uncertain,reports=reports },interrupted);
+                if(history!=null)history.EndTask(new { version="0.14.1",user=archive==null?targets[0].User:archive.User,userId=archive==null?"":archive.UserId,displayName=archive==null?"":archive.DisplayName,saveRoot=archive==null?destination.Text:archive.Root,taskFolder=root,limit=(int)limit.Value,replies=replies.Checked,images=images.Checked,videos=videos.Checked,skipSensitive=skipSensitive.Checked,sensitiveSkipped=sensitiveSkipped,sensitivityUnknown=sensitivityUnknown,targets=targets.Select(t=>t.Url).ToArray(),time=DateTimeOffset.Now.ToString("o"),interrupted=interrupted,posts=posts,saved=saved,repaired=repaired,dateOutside=range.Outside,dateUnknown=range.Unknown,from=range.Start.HasValue?range.Start.Value.ToString("yyyy-MM-dd"):null,to=range.End.HasValue?range.End.Value.ToString("yyyy-MM-dd"):null,timeZone="UTC",force=forceDownload.Checked,strictScan=strictScan.Checked,skipped=skipped,failed=failed,unconfirmed=uncertain,reports=reports },interrupted);
             }catch(Exception ex) { Error(ex);Log("任务汇总未写入数据库，请保留诊断日志。"); }
             try {
                 Log("日期过滤：范围外 "+range.Outside+" 篇，时间无法解析 "+range.Unknown+" 篇。");
