@@ -54,6 +54,7 @@ class History {
     readonly List<HistoryEntry> entries=new List<HistoryEntry>();
     readonly List<string> files=new List<string>();
     string taskId=""; public string FoundPath;
+    bool readOnly;
     public bool LastRepair;
     public int Imported { get { return entries.Count; } }
     public History(string folder) { root=Path.GetFullPath(folder).TrimEnd(Path.DirectorySeparatorChar)+Path.DirectorySeparatorChar;index=Path.Combine(root,"_历史索引.json");database=Path.Combine(root,"_下载记录.sqlite"); }
@@ -99,6 +100,7 @@ class History {
         var e=Entry(d);e.postId=post;e.path=Relative(Path.Combine(dir,name));return e;
     }
     public void Load(CancellationToken ct) {
+        readOnly=false;
         entries.Clear();files.Clear();
         using(var db=Open()) {
             db.Initialize();
@@ -142,6 +144,34 @@ class History {
             db.Execute("UPDATE tasks SET state='interrupted' WHERE state='running'");
         }
     }
+    public void LoadPreview(CancellationToken ct) {
+        readOnly=true;entries.Clear();files.Clear();ct.ThrowIfCancellationRequested();
+        if(!Directory.Exists(root))return;
+        // No migration, recovery, task-state changes or database creation during preview.
+        foreach(string file in Walk(root,ct)) {
+            files.Add(file);
+            if(!file.EndsWith(".json",StringComparison.OrdinalIgnoreCase))continue;
+            string parent=Path.GetFileName(Path.GetDirectoryName(file));
+            bool isIndex=file.Equals(index,StringComparison.OrdinalIgnoreCase);
+            if(!isIndex && parent!="_记录" && !Regex.IsMatch(parent,@"^[0-9]{1,25}$"))continue;
+            Dictionary<string,object> data;
+            try { data=Json.Read(File.ReadAllText(file)); }catch { throw new UserError("旧 JSON 无法解析，预览查重已停止；请保留记录用于排查。"); }
+            var candidates=new List<HistoryEntry>();
+            if(isIndex)candidates.AddRange(Json.Arr(Json.Get(data,"entries")).Select(x=>Entry(Json.Map(x))));
+            else if(Json.Str(data,"assetId")!="")candidates.Add(Receipt(file,data));
+            foreach(var entry in candidates) { ct.ThrowIfCancellationRequested();if(!Accept(entry))throw new UserError("旧媒体记录无效，预览查重已停止。");Cache(entry); }
+        }
+        if(!File.Exists(database))return;
+        using(var db=new RecordDb(database,true)) {
+            string version=db.Query("PRAGMA user_version")[0][0];
+            if(version!="1" && version!="2")throw new UserError("下载记录版本不支持只读预览，请使用配套版本程序。");
+            foreach(var row in db.Query("SELECT post_id,asset_id,user_id,path,bytes,sha256 FROM media")) {
+                ct.ThrowIfCancellationRequested();
+                var e=new HistoryEntry { postId=row[0],assetId=row[1],userId=row[2],path=row[3],bytes=Int64.Parse(row[4]),sha256=row[5] };
+                if(!Accept(e))throw new UserError("数据库中的媒体记录无效，预览已停止。");Cache(e);
+            }
+        }
+    }
     bool Valid(HistoryEntry e,string path,CancellationToken ct) {
         ct.ThrowIfCancellationRequested();if(path==null || !File.Exists(path))return false;
         for(string p=path;p!=null && p.TrimEnd('\\').Length>=root.TrimEnd('\\').Length;p=Path.GetDirectoryName(p))if((File.GetAttributes(p)&FileAttributes.ReparsePoint)!=0)return false;
@@ -150,10 +180,10 @@ class History {
     public bool Find(Post p,Asset a,CancellationToken ct) {
         LastRepair=false;FoundPath=null;
         var matching=entries.Where(x=>x.postId==p.Id && x.assetId==a.Id && (String.IsNullOrEmpty(x.userId) || String.IsNullOrEmpty(p.UserId) || x.userId==p.UserId)).ToList();
-        foreach(var e in matching)if(Valid(e,Resolve(e.path),ct)) { FoundPath=e.path;using(var db=Open())Put(db,e,"complete");return true; }
+        foreach(var e in matching)if(Valid(e,Resolve(e.path),ct)) { FoundPath=e.path;if(!readOnly)using(var db=Open())Put(db,e,"complete");return true; }
         foreach(var e in matching)foreach(string candidate in files) {
             if(!new[]{".mp4",".png",".jpg",".gif",".webp"}.Contains(Path.GetExtension(candidate).ToLowerInvariant()))continue;
-            if(Valid(e,candidate,ct)) { string previous=e.path;e.path=Relative(candidate);using(var db=Open())db.Transaction(()=> { db.Execute("DELETE FROM media WHERE post_id=? AND asset_id=? AND path=?",e.postId,e.assetId,previous);Put(db,e,"complete"); });FoundPath=e.path;return true; }
+            if(Valid(e,candidate,ct)) { string previous=e.path;e.path=Relative(candidate);if(!readOnly)using(var db=Open())db.Transaction(()=> { db.Execute("DELETE FROM media WHERE post_id=? AND asset_id=? AND path=?",e.postId,e.assetId,previous);Put(db,e,"complete"); });FoundPath=e.path;return true; }
         }
         LastRepair=matching.Count>0;return false;
     }

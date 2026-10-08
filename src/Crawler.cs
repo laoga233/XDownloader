@@ -8,7 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 
 namespace XDownloader {
-class ScanResult { public string Reason=""; public bool End; public int Posts, Rejected,TypeSkipped,SensitiveSkipped,SensitivityUnknown; }
+class ScanResult { public string Reason=""; public bool End; public int Seen,Posts, Rejected,TypeSkipped,SensitiveSkipped,SensitivityUnknown; }
 partial class Browser {
     string ownedTarget;
     internal int ScanIdleMilliseconds=45000;
@@ -118,6 +118,7 @@ partial class Browser {
                 structured|=batch.Structured;result.End|=(!unknown && batch.End);result.Rejected+=batch.Rejected;
                 foreach(var post in batch.Posts) {
                     if(!seen.Add(post.Id))continue;
+                    result.Seen++;
                     quiet.Restart();
                     if(selection!=null && !selection.Accept(post)) {
                         result.TypeSkipped++;

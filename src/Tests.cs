@@ -145,7 +145,66 @@ static class Tests {
             await StorageTests(dir);
             await ArchiveTests(dir);
             await NicknameTests(dir);
+            await PreviewTests(dir);
         } finally { Directory.Delete(dir,true); }
+    }
+    static async Task PreviewTests(string dir) {
+        var ct=CancellationToken.None;string root=Path.Combine(dir,"preview");Directory.CreateDirectory(root);
+        var history=new History(root);history.Load(ct);
+        var post=Parse(Fixture("tester","5555")).Posts[0];post.UserId="42";
+        var photo=post.Media[0];var video=post.Media[1];
+        string original=Path.Combine(root,"image.png");File.WriteAllBytes(original,new byte[]{1,2,3,4});
+        history.Persist(post,photo,original,4,Model.Hash(original),"pending");
+        string missing=Path.Combine(root,"lost.mp4");File.WriteAllBytes(missing,new byte[]{5,6,7,8});
+        history.Persist(post,video,missing,4,Model.Hash(missing),"complete");File.Delete(missing);
+        string moved=Path.Combine(root,"moved.png");File.Move(original,moved);
+        history.BeginTask(root,new { test="must stay running" });
+        string database=Path.Combine(root,"_下载记录.sqlite"),hash=Model.Hash(database);
+        int fileCount=Directory.GetFiles(root,"*",SearchOption.AllDirectories).Length;
+        var previewHistory=new History(root);previewHistory.LoadPreview(ct);
+        var selection=new MediaSelection(true,true);var summary=new PreviewSummary();
+        summary.Observe(post,selection,previewHistory,ct);
+        var fresh=Parse(Fixture("tester","5556")).Posts[0];fresh.Media[1].Kind="animated_gif";
+        summary.Observe(fresh,selection,previewHistory,ct);
+        Check(summary.Posts==2 && summary.Photos==2 && summary.Videos==1 && summary.Gifs==1,"preview counts images videos and GIFs");
+        Check(summary.Existing==1 && summary.Repair==1 && summary.NewMedia==2 && summary.Unknown==4,"preview checks moved complete and missing history");
+        Check(summary.ToDownload(false)==3 && summary.ToDownload(true)==4,"preview force download includes duplicates only when requested");
+        Check(Model.Hash(database)==hash && Directory.GetFiles(root,"*",SearchOption.AllDirectories).Length==fileCount,"preview never updates paths pending state tasks or creates files");
+        var filtered=new PreviewSummary();fresh.Media[0].PossiblySensitive=true;
+        filtered.Observe(fresh,new MediaSelection(true,true,true),previewHistory,ct);
+        Check(filtered.Total==1 && filtered.Gifs==1,"preview sensitive selection excludes blocked photo");
+        var photosOnly=new PreviewSummary();photosOnly.Observe(post,new MediaSelection(true,false),previewHistory,ct);
+        Check(photosOnly.Total==1 && photosOnly.Existing==1,"preview photo-only selection");
+        var videosOnly=new PreviewSummary();videosOnly.Observe(post,new MediaSelection(false,true),previewHistory,ct);
+        Check(videosOnly.Total==1 && videosOnly.Repair==1,"preview video-only selection");
+        using(var cancelled=new CancellationTokenSource()) {
+            cancelled.Cancel();bool stopped=false;
+            try { summary.Observe(post,selection,previewHistory,cancelled.Token); }catch(OperationCanceledException) { stopped=true; }
+            Check(stopped && Model.Hash(database)==hash,"cancelled preview does not mutate history");
+        }
+        string legacyRoot=Path.Combine(dir,"previewlegacy");Directory.CreateDirectory(legacyRoot);
+        using(var browser=new FakeBrowser())await new Downloader(browser,s=>{},t=>Task.FromResult(0)).Save(post,photo,legacyRoot,ct,true);
+        string[] legacyFiles=Directory.GetFiles(legacyRoot,"*",SearchOption.AllDirectories);var legacyHashes=legacyFiles.Select(Model.Hash).ToArray();
+        var legacy=new History(legacyRoot);legacy.LoadPreview(ct);
+        Check(legacy.Find(post,photo,ct) && !File.Exists(Path.Combine(legacyRoot,"_下载记录.sqlite")),"preview checks old JSON without migration or DB creation");
+        Check(legacyFiles.Select(Model.Hash).SequenceEqual(legacyHashes),"preview leaves legacy records untouched");
+        string emptyRoot=Path.Combine(dir,"previewempty");new History(emptyRoot).LoadPreview(ct);Check(!Directory.Exists(emptyRoot),"preview history does not create a nonexistent root");
+        using(var browser=new ScanBrowser { ThreePosts=true }) {
+            var range=new DateRange(new DateTime(2026,9,20),new DateTime(2026,9,20));var result=new PreviewSummary();
+            var scan=await browser.Scan(Target.Parse("tester"),1,false,s=>{},p=> { result.Observe(p,selection,previewHistory,ct);return Task.FromResult(0); },t=>Task.FromResult(0),ct,range.Accept,range,selection);
+            Check(result.Posts==1 && result.Total==2 && scan.Seen==2 && range.Outside==1,"preview uses scanner date filters and counts rejected dates");
+            Check(!scan.End && scan.Reason.Contains("上限"),"preview distinguishes cap from visible end");
+            string description=result.Describe(Target.Parse("tester"),root,range,scan,false,null);
+            Check(description.Contains("上限") && description.Contains("预计下载") && PreviewSummary.Notice.Contains("重新查看页面") && PreviewSummary.Notice.Contains("不一定包含全部"),"preview explains stopping reason with details in hover notice");
+        }
+        using(var browser=new ScanBrowser()) {
+            var range=new DateRange(null,null);var result=new PreviewSummary();
+            var scan=await browser.Scan(Target.Parse("tester"),0,false,s=>{},p=> { result.Observe(p,selection,previewHistory,ct);return Task.FromResult(0); },t=>Task.FromResult(0),ct,range.Accept,null,selection);
+            Check(scan.End && result.Total==2,"preview unlimited scan reaches explicit visible end without media resource requests");
+        }
+        // Real download rechecks the current files, even if preview found them complete.
+        File.WriteAllBytes(moved,new byte[]{9,9});history=new History(root);history.Load(ct);
+        Check(!history.Find(post,photo,ct) && history.LastRepair,"download revalidation notices file damage after preview");
     }
     static async Task NicknameTests(string dir) {
         var tweet=Fixture("tester","555");Model.At(tweet,"core","user_results","result","core")["name"]="显示昵称😀";

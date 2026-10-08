@@ -20,11 +20,11 @@ using System.Windows.Forms;
 [assembly: System.Reflection.AssemblyTitle("X/推特图片视频下载器")]
 [assembly: System.Reflection.AssemblyProduct("X/推特图片视频下载器")]
 [assembly: System.Reflection.AssemblyCompany("By Codex&上邪上")]
-[assembly: System.Reflection.AssemblyVersion("0.14.1.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.14.1.0")]
+[assembly: System.Reflection.AssemblyVersion("0.15.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.15.0.0")]
 
 namespace XDownloader {
-class MainWindow : Form {
+partial class MainWindow : Form {
     TextBox urls=new TextBox(), destination=new TextBox(), logs=new TextBox();
     Button login=new Button(), start=new Button(), pause=new Button(), cancel=new Button(), folder=new Button(), recentButton=new Button();
     Label status=new Label(); ProgressBar progress=new ProgressBar();
@@ -36,27 +36,28 @@ class MainWindow : Form {
     readonly StringBuilder runLog=new StringBuilder();
     string lastTaskFolder,activeDiagnostic;
     DateTimePicker fromDate=new DateTimePicker(),toDate=new DateTimePicker(); CheckBox forceDownload=new CheckBox(),strictScan=new CheckBox();
+    CheckBox previewBeforeDownload=new CheckBox();
     public MainWindow(bool test) {
         data=test ? Path.Combine(Path.GetTempPath(),"XDownloader-UI") : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"XDownloader");
         browser=new Browser(Path.Combine(data,"ChromeProfile"));
         recent=new RecentDestinations(Path.Combine(data,"recent-destinations.json"));if(!test)recent.Load();
-        Text="X/推特图片视频下载器 · v0.14.1 · By Codex&上邪上"; Font=new Font("Microsoft YaHei UI",10); BackColor=Color.FromArgb(245,247,251); ForeColor=Color.FromArgb(30,42,58);
+        Text="X/推特图片视频下载器 · v0.15 · By Codex&上邪上"; Font=new Font("Microsoft YaHei UI",10); BackColor=Color.FromArgb(245,247,251); ForeColor=Color.FromArgb(30,42,58);
         Icon=System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         ClientSize=new Size(960,840); MinimumSize=new Size(940,810); StartPosition=FormStartPosition.CenterScreen; AutoScaleMode=AutoScaleMode.Dpi;
-        var layout=new TableLayoutPanel { Dock=DockStyle.Fill, Padding=new Padding(26), ColumnCount=1, RowCount=13 };
-        float[] heights={48,35,46,28,105,28,42,42,30,38,32,30,100};
-        for(int i=0;i<heights.Length;i++) layout.RowStyles.Add(new RowStyle(i==12?SizeType.Percent:SizeType.Absolute,heights[i]));
+        var layout=new TableLayoutPanel { Dock=DockStyle.Fill, Padding=new Padding(26), ColumnCount=1, RowCount=14 };
+        float[] heights={48,35,46,28,105,28,42,42,30,38,32,30,32,100};
+        for(int i=0;i<heights.Length;i++) layout.RowStyles.Add(new RowStyle(i==13?SizeType.Percent:SizeType.Absolute,heights[i]));
         Controls.Add(layout);
         var heading=new FlowLayoutPanel { Dock=DockStyle.Fill,WrapContents=false };
         heading.Controls.Add(new Label { Text="X/推特图片视频下载器",Font=new Font(Font.FontFamily,21,FontStyle.Bold),AutoSize=true,UseMnemonic=false });
-        heading.Controls.Add(new Label { Text="v0.14.1  ·  By Codex&上邪上",Font=new Font(Font.FontFamily,11),AutoSize=true,UseMnemonic=false,Margin=new Padding(12,14,0,0),ForeColor=Color.DimGray });
+        heading.Controls.Add(new Label { Text="v0.15  ·  By Codex&上邪上",Font=new Font(Font.FontFamily,11),AutoSize=true,UseMnemonic=false,Margin=new Padding(12,14,0,0),ForeColor=Color.DimGray });
         var headingRow=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=2,RowCount=1 };
         headingRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));headingRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,94));
         headingRow.Controls.Add(heading,0,0);
         var changelog=new Button();Style(changelog,"更新日志",86);changelog.AccessibleName="查看最近六个版本的更新日志";
         changelog.Click+=delegate {
-            using(var dialog=new Form { Text="更新日志 · v0.14.1 至 v0.11",StartPosition=FormStartPosition.CenterParent,ClientSize=new Size(700,570),MinimizeBox=false,MaximizeBox=false,ShowInTaskbar=false,FormBorderStyle=FormBorderStyle.FixedDialog,BackColor=BackColor,ForeColor=ForeColor }) {
-                var content=new TextBox { Multiline=true,ReadOnly=true,WordWrap=true,ScrollBars=ScrollBars.Vertical,Dock=DockStyle.Fill,BorderStyle=BorderStyle.None,BackColor=Color.White,ForeColor=Color.FromArgb(35,45,60),Font=new Font("Microsoft YaHei UI",11),Text=Changelog.Content,Padding=new Padding(8),AccessibleName="v0.14.1 至 v0.11 更新内容" };
+            using(var dialog=new Form { Text="更新日志 · v0.15 至 v0.12",StartPosition=FormStartPosition.CenterParent,ClientSize=new Size(700,570),MinimizeBox=false,MaximizeBox=false,ShowInTaskbar=false,FormBorderStyle=FormBorderStyle.FixedDialog,BackColor=BackColor,ForeColor=ForeColor }) {
+                var content=new TextBox { Multiline=true,ReadOnly=true,WordWrap=true,ScrollBars=ScrollBars.Vertical,Dock=DockStyle.Fill,BorderStyle=BorderStyle.None,BackColor=Color.White,ForeColor=Color.FromArgb(35,45,60),Font=new Font("Microsoft YaHei UI",11),Text=Changelog.Content,Padding=new Padding(8),AccessibleName="v0.15 至 v0.12 更新内容" };
                 dialog.Controls.Add(content);dialog.ShowDialog(this);
             }
         };
@@ -96,7 +97,7 @@ class MainWindow : Form {
         };
         var stateRow=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=2 };stateRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,68));stateRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,32));
         status.Text="准备就绪 · 仅公开帖子 · 自动跳过重复文件";status.Dock=DockStyle.Fill;status.AutoEllipsis=true;progress.Dock=DockStyle.Fill;stateRow.Controls.Add(status,0,0);stateRow.Controls.Add(progress,1,0);layout.Controls.Add(stateRow,0,8);
-        logs.Multiline=true;logs.ReadOnly=true;logs.ScrollBars=ScrollBars.Vertical;logs.Dock=DockStyle.Fill;logs.BackColor=Color.White;logs.BorderStyle=BorderStyle.FixedSingle;layout.Controls.Add(logs,0,12);
+        logs.Multiline=true;logs.ReadOnly=true;logs.ScrollBars=ScrollBars.Vertical;logs.Dock=DockStyle.Fill;logs.BackColor=Color.White;logs.BorderStyle=BorderStyle.FixedSingle;layout.Controls.Add(logs,0,13);
         var options=new FlowLayoutPanel { Dock=DockStyle.Fill }; images.Text="图片";images.Checked=true;images.Width=75;videos.Text="视频 / GIF";videos.Checked=true;videos.Width=120;replies.Text="包含回复媒体";replies.Checked=true;replies.Width=145;limit.Minimum=0;limit.Maximum=1000000;limit.Value=0;limit.Width=95;options.Controls.AddRange(new Control[]{images,videos,replies,new Label { Text="匹配帖数（0 不限）",AutoSize=true,Margin=new Padding(8,5,0,0) },limit});strictScan.Text="完整扫描（不提前停止）";strictScan.Width=215;options.Controls.Add(strictScan);layout.Controls.Add(options,0,9);
         var dates=new FlowLayoutPanel { Dock=DockStyle.Fill };
         foreach(var picker in new[]{fromDate,toDate}) { picker.Format=DateTimePickerFormat.Custom;picker.CustomFormat="yyyy-MM-dd";picker.ShowCheckBox=true;picker.Width=160;picker.Checked=false; }
@@ -106,6 +107,9 @@ class MainWindow : Form {
         var sensitivityRow=new FlowLayoutPanel { Dock=DockStyle.Fill,WrapContents=false,FlowDirection=FlowDirection.LeftToRight };
         skipSensitive.Text="跳过 X 标记的敏感媒体";skipSensitive.Width=220;skipSensitive.AccessibleName="跳过 X 标记为敏感或成人内容的媒体";skipSensitive.AccessibleDescription="依据 X 返回的通用敏感标记过滤；不能区分成人内容与暴力等类别。缺少标记视为未知，不代表安全。";
         sensitivityRow.Controls.Add(skipSensitive);sensitivityRow.Controls.Add(new Label { Text="仅依据 X 提供的标记；未标记或未知不代表安全。",AutoSize=true,Margin=new Padding(8,5,0,0),ForeColor=Color.DimGray });layout.Controls.Add(sensitivityRow,0,11);
+        previewBeforeDownload.Text="下载前预览（先扫描，确认后下载）";previewBeforeDownload.AutoSize=true;previewBeforeDownload.AccessibleName="下载前预览，默认关闭";
+        var previewRow=new FlowLayoutPanel { Dock=DockStyle.Fill,WrapContents=false };previewRow.Controls.Add(previewBeforeDownload);layout.Controls.Add(previewRow,0,12);
+        if(!test && File.Exists(Path.Combine(data,"settings.json")))try { previewBeforeDownload.Checked=Object.Equals(Json.Get(Json.Read(File.ReadAllText(Path.Combine(data,"settings.json"))),"previewBeforeDownload"),true); }catch {}
         fromDate.AccessibleName="开始日期 UTC，不勾选为不限";toDate.AccessibleName="结束日期 UTC，不勾选为不限";
         if(!test && File.Exists(Path.Combine(data,"settings.json")))try { var settings=Json.Read(File.ReadAllText(Path.Combine(data,"settings.json")));DateTime day;if(DateTime.TryParseExact(Json.Str(settings,"from"),"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.None,out day)) { fromDate.Value=day;fromDate.Checked=true; }if(DateTime.TryParseExact(Json.Str(settings,"to"),"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.None,out day)) { toDate.Value=day;toDate.Checked=true; }skipSensitive.Checked=Object.Equals(Json.Get(settings,"skipSensitive"),true); }catch {}
         Log("默认跨任务校验去重；勾选日期可限定范围（UTC，包含结束日）。日期和媒体类型均匹配的帖子计入上限。");
@@ -138,7 +142,7 @@ class MainWindow : Form {
         else Log("操作失败（"+ex.GetType().Name+"）。请重试；日志不会输出登录凭证。");
     }
     async Task Wait(CancellationToken ct) { while(paused) await Task.Delay(200,ct); ct.ThrowIfCancellationRequested(); }
-    void SaveSettings(string root) { Directory.CreateDirectory(data);Downloader.AtomicText(Path.Combine(data,"settings.json"),Json.Write(new { folder=root,from=fromDate.Checked?fromDate.Value.ToString("yyyy-MM-dd"):"",to=toDate.Checked?toDate.Value.ToString("yyyy-MM-dd"):"",skipSensitive=skipSensitive.Checked })); }
+    void SaveSettings(string root) { Directory.CreateDirectory(data);Downloader.AtomicText(Path.Combine(data,"settings.json"),Json.Write(new { folder=root,from=fromDate.Checked?fromDate.Value.ToString("yyyy-MM-dd"):"",to=toDate.Checked?toDate.Value.ToString("yyyy-MM-dd"):"",skipSensitive=skipSensitive.Checked,previewBeforeDownload=previewBeforeDownload.Checked })); }
     void Remember(TaskArchive archive) { try { recent.Remember(archive.Recent()); }catch { Log("最近目的地未能写入本机设置；媒体与诊断记录仍保存在任务目录。"); } }
     async Task Run() {
         var targets=new List<Target>();string root;DateRange range;MediaSelection mediaSelection;
@@ -157,9 +161,14 @@ class MainWindow : Form {
             Directory.CreateDirectory(root);Directory.CreateDirectory(data);
             SaveSettings(root);
         }catch(Exception ex) { Error(ex);return; }
+        if(previewBeforeDownload.Checked) {
+            if(!await PreviewBeforeDownload(targets[0],root,range,mediaSelection))return;
+            // Download always rescans current page data and rechecks history after confirmation.
+            range=new DateRange(range.Start,range.End);
+        }
         cancellation=new CancellationTokenSource();var ct=cancellation.Token;paused=false;
         runLog.Clear();logs.Clear();
-        start.Enabled=login.Enabled=folder.Enabled=recentButton.Enabled=urls.Enabled=destination.Enabled=images.Enabled=videos.Enabled=replies.Enabled=limit.Enabled=fromDate.Enabled=toDate.Enabled=forceDownload.Enabled=strictScan.Enabled=skipSensitive.Enabled=false;
+        SetTaskControls(false);
         pause.Enabled=cancel.Enabled=true;progress.Style=ProgressBarStyle.Marquee;
         int saved=0,repaired=0,skipped=0,failed=0,uncertain=0,posts=0,sensitiveSkipped=0,sensitivityUnknown=0;bool interrupted=false,keepPage=false;
         var reports=new List<object>(); string reportFile=Path.Combine(root,"运行记录_"+DateTime.Now.ToString("yyyyMMdd_HHmmss_fff")+".诊断.txt");History history=null;TaskArchive archive=null;bool historyReady=false,taskBegun=false;
@@ -176,7 +185,7 @@ class MainWindow : Form {
             archive=new TaskArchive(root,targets[0].User);root=archive.Folder;lastTaskFolder=root;
             reportFile=archive.Diagnostic;
             activeDiagnostic=reportFile;
-            Log("v0.14.1 · 按用户 ID 归档任务；本机保留最近 5 次任务目的地。");Remember(archive);
+            Log("v0.15 · 按用户 ID 归档任务；本机保留最近 5 次任务目的地。");Remember(archive);
             Log("正在检查历史任务记录…");await Task.Run(()=>history.Load(ct),ct);historyReady=true;Log("已加载历史记录 "+history.Imported+" 条；旧 JSON 保留原件。");
             await browser.Connect(ct);await browser.AttachPage(ct);
             var worker=new Downloader(browser,Log,Wait,history);
@@ -227,7 +236,7 @@ class MainWindow : Form {
         if(archive!=null && historyReady && !taskBegun)try { establish(targets[0].User,"",""); }catch(Exception ex) { Error(ex); }
         try { if(keepPage)Log("已保留 Chrome 任务标签页，便于检查页面是否显示媒体、登录或验证提示。");else await browser.ClosePage(); } finally {
             try {
-                if(history!=null)history.EndTask(new { version="0.14.1",user=archive==null?targets[0].User:archive.User,userId=archive==null?"":archive.UserId,displayName=archive==null?"":archive.DisplayName,saveRoot=archive==null?destination.Text:archive.Root,taskFolder=root,limit=(int)limit.Value,replies=replies.Checked,images=images.Checked,videos=videos.Checked,skipSensitive=skipSensitive.Checked,sensitiveSkipped=sensitiveSkipped,sensitivityUnknown=sensitivityUnknown,targets=targets.Select(t=>t.Url).ToArray(),time=DateTimeOffset.Now.ToString("o"),interrupted=interrupted,posts=posts,saved=saved,repaired=repaired,dateOutside=range.Outside,dateUnknown=range.Unknown,from=range.Start.HasValue?range.Start.Value.ToString("yyyy-MM-dd"):null,to=range.End.HasValue?range.End.Value.ToString("yyyy-MM-dd"):null,timeZone="UTC",force=forceDownload.Checked,strictScan=strictScan.Checked,skipped=skipped,failed=failed,unconfirmed=uncertain,reports=reports },interrupted);
+                if(history!=null)history.EndTask(new { version="0.15",user=archive==null?targets[0].User:archive.User,userId=archive==null?"":archive.UserId,displayName=archive==null?"":archive.DisplayName,saveRoot=archive==null?destination.Text:archive.Root,taskFolder=root,limit=(int)limit.Value,replies=replies.Checked,images=images.Checked,videos=videos.Checked,skipSensitive=skipSensitive.Checked,sensitiveSkipped=sensitiveSkipped,sensitivityUnknown=sensitivityUnknown,targets=targets.Select(t=>t.Url).ToArray(),time=DateTimeOffset.Now.ToString("o"),interrupted=interrupted,posts=posts,saved=saved,repaired=repaired,dateOutside=range.Outside,dateUnknown=range.Unknown,from=range.Start.HasValue?range.Start.Value.ToString("yyyy-MM-dd"):null,to=range.End.HasValue?range.End.Value.ToString("yyyy-MM-dd"):null,timeZone="UTC",force=forceDownload.Checked,strictScan=strictScan.Checked,skipped=skipped,failed=failed,unconfirmed=uncertain,reports=reports },interrupted);
             }catch(Exception ex) { Error(ex);Log("任务汇总未写入数据库，请保留诊断日志。"); }
             try {
                 Log("日期过滤：范围外 "+range.Outside+" 篇，时间无法解析 "+range.Unknown+" 篇。");
@@ -240,7 +249,7 @@ class MainWindow : Form {
             activeDiagnostic=null;browser.Dispose();cancellation.Dispose();cancellation=null;paused=false;pause.Text="暂停";
             if(archive!=null)Remember(archive);
             progress.Style=ProgressBarStyle.Blocks;progress.Value=0;
-            start.Enabled=login.Enabled=folder.Enabled=recentButton.Enabled=urls.Enabled=destination.Enabled=images.Enabled=videos.Enabled=replies.Enabled=limit.Enabled=fromDate.Enabled=toDate.Enabled=forceDownload.Enabled=strictScan.Enabled=skipSensitive.Enabled=true;
+            SetTaskControls(true);
             pause.Enabled=cancel.Enabled=false;if(closing)Close();
         }
     }
