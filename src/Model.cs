@@ -21,7 +21,7 @@ class Target {
         return new Target { User=user, Id=id, Url="https://x.com/"+user+(id==""?"/media":"/status/"+id) };
     }
 }
-class Asset { public string Id, Url, Kind; public int Index; public bool? PossiblySensitive; }
+class Asset { public string Id, Url, Kind,PreviewImageUrl; public int Index; public bool? PossiblySensitive; }
 class MediaSelection {
     public readonly bool Images,Videos,SkipSensitive;
     public MediaSelection(bool images,bool videos,bool skipSensitive=false) { if(!images && !videos)throw new UserError("请至少选择图片或视频。");Images=images;Videos=videos;SkipSensitive=skipSensitive; }
@@ -173,7 +173,9 @@ static class Model {
                     }
                     if(url=="")throw new UserError("无可用 MP4；暂不支持仅 HLS / 直播媒体。");
                 } else throw new UserError("遇到未支持的媒体类型。");
-                p.Media.Add(new Asset { Id=mid,Index=index,Url=url,Kind=type,PossiblySensitive=OrSensitive(postSensitive,SensitiveFlag(media)) });
+                string poster="";
+                try { poster=Original(Json.Str(media,"media_url_https")); }catch(UserError) { /* Missing cover must not discard a downloadable video. */ }
+                p.Media.Add(new Asset { Id=mid,Index=index,Url=url,Kind=type,PreviewImageUrl=poster,PossiblySensitive=OrSensitive(postSensitive,SensitiveFlag(media)) });
             }catch(UserError e) { p.Warnings.Add("媒体 "+index+"："+e.Message); }
         }
         return p;

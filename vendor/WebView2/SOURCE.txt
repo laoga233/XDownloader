@@ -1,0 +1,5 @@
+Microsoft.Web.WebView2 SDK 1.0.3537.50 (Microsoft)
+Source: https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/1.0.3537.50/microsoft.web.webview2.1.0.3537.50.nupkg
+Package SHA-256: 5EA526BBD728ADDA0DA4D31219267E96460494A427E4894C4E09D9F320F4B9AA
+Included: .NET Framework 4.6.2 Core/WinForms assemblies, x64/x86 native loader, LICENSE.txt and NOTICE.txt.
+The WebView2 Runtime is installed separately by the user/Windows; it is not bundled or automatically installed by this application.

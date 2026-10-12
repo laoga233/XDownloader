@@ -219,6 +219,9 @@ __marimo__/
 
 # XDownloader build and local user data
 XDownloader.exe
+/Microsoft.Web.WebView2.Core.dll
+/Microsoft.Web.WebView2.WinForms.dll
+PreviewCache/
 *.sqlite
 *.sqlite-journal
 *.sqlite-wal

@@ -1,4 +1,5 @@
-using System;
+﻿using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Text;
@@ -14,11 +15,13 @@ sealed class PreviewSummary {
         "达到帖数上限，或看到较早的帖子时，扫描可能提前结束。\r\n\r\n"+
         "确认下载后会重新查看页面，再检查一次是否已经下载过，\r\n"+
         "所以需要再等一会儿，实际下载数量也可能有变化。\r\n\r\n"+
-        "预览不会下载文件，也不会改动原来的下载记录。\r\n"+
+        "打开媒体页会加载封面；悬停后会加载大图或视频，产生流量。\r\n"+
+        "临时缓存不算正式下载，不会改动原来的下载记录。\r\n"+
         "旧记录整理和文件夹恢复会在正式下载时进行。\r\n"+
         "排查问题用的日志会保存在保存位置下的“_预览记录”文件夹。\r\n\r\n"+
         "X 没有提供敏感标记，不代表内容一定安全。";
     public int Posts,Photos,Videos,Gifs,Existing,Repair,NewMedia,Unknown,Warnings;
+    public readonly List<PreviewMedia> Media=new List<PreviewMedia>();
     public int Total { get { return Photos+Videos+Gifs; } }
     public int ToDownload(bool force) { return force?Total:NewMedia+Repair; }
     public void Observe(Post post,MediaSelection selection,History history,CancellationToken ct) {
@@ -30,6 +33,7 @@ sealed class PreviewSummary {
             if(media.Kind=="photo")Photos++;else if(media.Kind=="animated_gif")Gifs++;else Videos++;
             if(!media.PossiblySensitive.HasValue)Unknown++;
             if(exists)Existing++;else if(history.LastRepair)Repair++;else NewMedia++;
+            Media.Add(PreviewMedia.Create(post,media,exists?"已下载，文件完好":history.LastRepair?"文件缺失或损坏":"没有下载记录"));
         }
     }
     public string Describe(Target target,string root,DateRange range,ScanResult scan,bool force,string stopped) {
@@ -72,12 +76,28 @@ sealed class PreviewSummary {
 }
 sealed class PreviewWindow : Form {
     readonly ToolTip noticeTip=new ToolTip { InitialDelay=350,ReshowDelay=100,AutoPopDelay=30000,ShowAlways=true,ToolTipTitle="预览说明" };
-    public PreviewWindow(string summary,bool canDownload) {
+    public PreviewWindow(string summary,bool canDownload) : this(summary,canDownload,null,null) {}
+    public PreviewWindow(string summary,bool canDownload,IList<PreviewMedia> media,Action<string> diagnostic) {
         Text="下载前预览 · 请核对后再下载";ClientSize=new Size(760,620);MinimumSize=new Size(680,500);StartPosition=FormStartPosition.CenterParent;ShowInTaskbar=false;MinimizeBox=false;
         Font=new Font("Microsoft YaHei UI",10);BackColor=Color.FromArgb(245,247,251);
         var layout=new TableLayoutPanel { Dock=DockStyle.Fill,Padding=new Padding(16),RowCount=2,ColumnCount=1 };
         layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,46));Controls.Add(layout);
-        var content=new RichTextBox { Text=summary,ReadOnly=true,DetectUrls=false,ScrollBars=RichTextBoxScrollBars.Vertical,Dock=DockStyle.Fill,BackColor=Color.White,BorderStyle=BorderStyle.FixedSingle,AccessibleName="预览统计及扫描范围说明" };layout.Controls.Add(content,0,0);
+        var content=new RichTextBox { Text=summary,ReadOnly=true,DetectUrls=false,ScrollBars=RichTextBoxScrollBars.Vertical,Dock=DockStyle.Fill,BackColor=Color.White,BorderStyle=BorderStyle.FixedSingle,AccessibleName="预览统计及扫描范围说明" };
+        var tabs=new TabControl { Dock=DockStyle.Fill };var counts=new TabPage("数量统计");counts.Controls.Add(content);tabs.TabPages.Add(counts);layout.Controls.Add(tabs,0,0);
+        if(media!=null && media.Count>0) {
+            var galleryPage=new TabPage("媒体预览（"+media.Count+"）");tabs.TabPages.Add(galleryPage);
+            MediaGallery gallery=null;
+            tabs.SelectedIndexChanged+=delegate {
+                if(tabs.SelectedTab==galleryPage) {
+                    if(gallery==null)try { gallery=new MediaGallery(media,diagnostic);gallery.Dock=DockStyle.Fill;galleryPage.Controls.Add(gallery); }
+                    catch(Exception) { galleryPage.Controls.Clear();galleryPage.Controls.Add(new Label { Text="媒体预览组件未能加载，请完整解压新版发布包。数量统计和下载仍可使用。",Dock=DockStyle.Fill,Padding=new Padding(16) }); }
+                    if(gallery!=null)gallery.ActivateGallery();
+                } else if(gallery!=null)gallery.SuspendGallery();
+            };
+            Deactivate+=delegate { if(gallery!=null)gallery.SuspendGallery(); };
+            Activated+=delegate { if(gallery!=null && tabs.SelectedTab==galleryPage)gallery.ActivateGallery(); };
+            FormClosing+=delegate { if(gallery!=null)gallery.SuspendGallery(); };
+        }
         content.SelectAll();content.SelectionTabs=new[]{300};
         using(var bold=new Font(Font,FontStyle.Bold)) {
             foreach(Match match in Regex.Matches(content.Text,@"(?m)^.*\t(\d+[^\n]*)")) {
@@ -117,7 +137,7 @@ partial class MainWindow {
         try {
             string folder=Path.Combine(root,"_预览记录");TaskArchive.CheckPath(root,folder);Directory.CreateDirectory(folder);
             activeDiagnostic=Path.Combine(folder,"预览_"+DateTime.Now.ToString("yyyyMMdd_HHmmss_fff")+"_"+Guid.NewGuid().ToString("N").Substring(0,6)+".诊断.txt");
-            Log("v0.15 · 下载前预览，只读检查历史，不保存媒体。诊断日志："+activeDiagnostic);
+            Log("v0.16 · 下载前预览，只读检查历史；媒体页按需加载临时预览。诊断日志："+activeDiagnostic);
             status.Text="预览 · 正在校验历史记录…";
             var history=new History(root);await Task.Run(()=>history.LoadPreview(ct),ct);
             await browser.Connect(ct);await browser.AttachPage(ct);
@@ -140,7 +160,9 @@ partial class MainWindow {
         status.Text=stopped??"预览完成 · 等待确认下载";
         if(closing) { Close();return false; }
         bool proceed;
-        using(var dialog=new PreviewWindow(summary.Describe(target,root,range,scan,forceDownload.Checked,stopped),scan!=null && summary.Total>0))proceed=dialog.ShowDialog(this)==DialogResult.OK;
+        string previewLog=Path.Combine(root,"_预览记录","媒体预览_"+DateTime.Now.ToString("yyyyMMdd_HHmmss_fff")+"_"+Guid.NewGuid().ToString("N").Substring(0,6)+".诊断.txt");
+        Action<string> galleryLog=message=> { try { File.AppendAllText(previewLog,DateTime.Now.ToString("HH:mm:ss")+" "+message+Environment.NewLine,new UTF8Encoding(false)); }catch(IOException) {}catch(UnauthorizedAccessException) {} };
+        using(var dialog=new PreviewWindow(summary.Describe(target,root,range,scan,forceDownload.Checked,stopped),scan!=null && summary.Total>0,summary.Media,galleryLog))proceed=dialog.ShowDialog(this)==DialogResult.OK;
         if(!proceed)status.Text=stopped??"预览结束 · 未开始下载";
         return proceed;
     }
